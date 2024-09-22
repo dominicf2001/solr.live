@@ -5,21 +5,21 @@
     import "vidstack/bundle";
 
     let connection: HubConnection;
+    let songSession: SongSession | undefined; 
 
     $effect(()=>{  
         connection = new HubConnectionBuilder()
-            .withUrl("http://localhost:5066/roomHub", {
+            .withUrl("http://192.168.4.29:5066/roomHub", {
                 skipNegotiation: true,
                 transport: HttpTransportType.WebSockets
             })
             .withAutomaticReconnect()
             .build();
 
-        connection.on("ReceiveSongSession", (songSession: SongSession | null) => {
-            if (!player || !songSession) return;
-            const startDate = dayjs(songSession.startTime);
+        connection.on("ReceiveSongSession", (receivedSongSession: SongSession | undefined) => {
+            if (!player || !receivedSongSession) return;
 
-            player.currentTime = dayjs().diff(startDate, "seconds");
+            songSession = receivedSongSession;
             player.src = songSession.song.link;
         });
 
@@ -28,8 +28,12 @@
         const player = document.querySelector("media-player");
         if (player){
             return player.subscribe(({ paused, canPlay }) => {
-                if (canPlay && paused){
-                    player.play();
+                if (canPlay){
+                    if (paused) player.play();
+
+                    player.currentTime = songSession ? 
+                        dayjs().diff(dayjs(songSession.startTime), "ms") / 1000 :
+                        0;
                 }            
             });
         }
@@ -38,7 +42,7 @@
     });
 </script>
 
-<media-player muted={true}>
+<media-player preload="auto" streamType="ll-live" muted={true}>
   <media-provider></media-provider>
   <media-video-layout></media-video-layout>
 </media-player>

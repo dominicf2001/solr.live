@@ -41,9 +41,7 @@ public class RoomHub : Hub
 
         RoomMember? member;
         if (!room.Members.TryGetValue(userID, out member))
-        {
             room.Members[Context.ConnectionId] = member = new RoomMember(userID);
-        }
 
         await Clients.Caller.SendAsync("ReceiveSongSession", room.SongSession);
 
