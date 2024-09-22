@@ -21,6 +21,9 @@
 	},
 	"type": "module",
 	"dependencies": {
+		"@microsoft/signalr": "^8.0.7",
+		"dayjs": "^1.11.13",
+		"signalr": "^2.4.3",
 		"swagger-typescript-api": "^13.0.22",
 		"vidstack": "^1.12.11"
 	}

@@ -1,18 +1,73 @@
-class User
-{
-    public string ID { get; private set; } = "";
+using Microsoft.AspNetCore.SignalR;
 
-    public User(string id)
+public class RoomHub : Hub
+{
+    private readonly ILogger<RoomHub> logger;
+
+    private static bool testDataInitialized = false;
+    static Room room = new("Test Room");
+
+    public RoomHub(ILogger<RoomHub> logger)
     {
-        ID = id;
+        this.logger = logger;
+        if (!testDataInitialized)
+        {
+            InitializeTestData();
+            testDataInitialized = true;
+        }
     }
 
-    public override string ToString() => ID;
+    private void InitializeTestData()
+    {
+        Uri testSongUrl = new Uri("https://www.youtube.com/watch?v=G9M3GVejHNE");
+        RoomMember djBill = new RoomMember("DJ Bill")
+        {
+            SongQueue = new Queue<Song>(new[]
+            {
+                new Song(testSongUrl)
+            })
+        };
+        room.Members.TryAdd("djBill", djBill);
+        room.DJQueue.Enqueue(djBill);
+        room.nextDJ();
+    }
+
+    public override async Task OnConnectedAsync()
+    {
+        string userID = Context.ConnectionId;
+        logger.LogInformation("User connected: {UserID}", userID);
+
+        await Groups.AddToGroupAsync(userID, room.Name);
+
+        RoomMember? member;
+        if (!room.Members.TryGetValue(userID, out member))
+        {
+            room.Members[Context.ConnectionId] = member = new RoomMember(userID);
+        }
+
+        await Clients.Caller.SendAsync("ReceiveSongSession", room.SongSession);
+
+        await base.OnConnectedAsync();
+    }
+
+    public override async Task OnDisconnectedAsync(Exception? exception)
+    {
+        string userID = Context.ConnectionId;
+        logger.LogInformation("User disconnected: {UserID}", userID);
+
+        await Groups.RemoveFromGroupAsync(userID, room.Name);
+        room.Members.Remove(userID);
+
+        if (room.DJ?.ID == userID)
+            room.nextDJ();
+
+        await base.OnDisconnectedAsync(exception);
+    }
 }
 
-class Song
+public class Song
 {
-    Uri Link { get; set; }
+    public Uri Link { get; set; }
 
     public Song(Uri link)
     {
@@ -20,37 +75,34 @@ class Song
     }
 }
 
-class SongSession
+public class SongSession
 {
-    private DateTime startTime = DateTime.Now;
+    public DateTime StartTime { get; private set; } = DateTime.Now;
     public Song Song { get; set; }
     public int Likes { get; set; } = 0;
     public int Dislikes { get; set; } = 0;
-    public int CurrentPlaybackTime
-    {
-        get
-        {
-            TimeSpan duration = DateTime.Now - startTime;
-            return (int)duration.TotalSeconds;
-        }
-    }
 
     public SongSession(Song song)
     {
         Song = song;
     }
+
+    public override string ToString()
+    {
+        return Song.Link.ToString();
+    }
 }
 
-class Room
+public class Room
 {
-    Queue<RoomMember> djQueue = new();
+    public Queue<RoomMember> DJQueue { get; set; } = new();
 
-    public List<RoomMember> Members = new();
+    public Dictionary<string, RoomMember> Members { get; set; } = new();
     public SongSession? SongSession { get; private set; }
-    public RoomMember? DJ;
+    public RoomMember? DJ { get; private set; }
 
     public string Name { get; set; } = "";
-    public string Owner { get; set; } = "";
+    public string Owner { get; private set; } = "";
 
     public void nextDJ()
     {
@@ -60,21 +112,25 @@ class Room
 
         // find a DJ with at least one song 
         RoomMember? nextDJ;
-        while (djQueue.TryDequeue(out nextDJ) && nextDJ.SongQueue.Count == 0)
+        while (DJQueue.TryDequeue(out nextDJ) && nextDJ.SongQueue.Count == 0)
             nextDJ = null;
 
         // set the new DJ
-        if (nextDJ is null && prevDJ?.SongQueue.Count > 0)
+        if (nextDJ is null)
         {
-            DJ = prevDJ;
-            SongSession = new SongSession(prevDJ.SongQueue.Dequeue());
+            if (prevDJ?.SongQueue.Count > 0)
+            {
+
+                DJ = prevDJ;
+                SongSession = new SongSession(prevDJ.SongQueue.Dequeue());
+            }
         }
         else
         {
             DJ = nextDJ;
-            SongSession = new SongSession(nextDJ!.SongQueue.Dequeue());
+            SongSession = new SongSession(nextDJ.SongQueue.Dequeue());
             if (prevDJ != null)
-                djQueue.Enqueue(prevDJ);
+                DJQueue.Enqueue(prevDJ);
         }
     }
 
@@ -86,21 +142,21 @@ class Room
     public override string ToString()
     {
         List<string> memberStrs = new();
-        foreach (RoomMember member in Members)
+        foreach (RoomMember member in Members.Values)
             memberStrs.Add(member.ToString());
         return $"[{string.Join(",", memberStrs)}]";
     }
 }
 
-class RoomMember
+public class RoomMember
 {
-    public Queue<Song> SongQueue = new();
-    public User User { get; set; }
+    public Queue<Song> SongQueue { get; set; } = new();
+    public string ID { get; private set; }
 
-    public RoomMember(User user)
+    public RoomMember(string id)
     {
-        this.User = user;
+        ID = id;
     }
 
-    public override string ToString() => User.ID;
+    public override string ToString() => ID;
 }

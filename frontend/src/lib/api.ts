@@ -1,18 +1,10 @@
-/* eslint-disable */
-/* tslint:disable */
-/*
- * ---------------------------------------------------------------
- * ## THIS FILE WAS GENERATED VIA SWAGGER-TYPESCRIPT-API        ##
- * ##                                                           ##
- * ## AUTHOR: acacode                                           ##
- * ## SOURCE: https://github.com/acacode/swagger-typescript-api ##
- * ---------------------------------------------------------------
- */
-
-export interface RoomMember {
-  user: User;
+export interface Song {
+  link: string;
 }
 
-export interface User {
-  id: string;
+export interface SongSession {
+  startTime: string;
+  song: Song;
+  likes: number;
+  dislikes: number;
 }
