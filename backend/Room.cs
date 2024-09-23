@@ -24,15 +24,15 @@ public class RoomHub : Hub
         logger.LogInformation("Initializing test data...");
         RoomMember djBill = new RoomMember("DJ Bill")
         {
-            SongQueue = new Queue<Song>(new[]
+            MediaQueue = new Queue<Media>(new[]
             {
-                new Song(new Uri("https://www.youtube.com/watch?v=_Td7JjCTfyc"), new TimeSpan(0, 0, 30)),
-                new Song(new Uri("https://www.youtube.com/watch?v=d95PPykB2vE"), new TimeSpan(0, 0, 30)),
+                new Media(new Uri("https://www.youtube.com/watch?v=_Td7JjCTfyc"), new TimeSpan(0, 0, 30)),
+                new Media(new Uri("https://www.youtube.com/watch?v=d95PPykB2vE"), new TimeSpan(0, 0, 30)),
             })
         };
         room.Members.TryAdd("djBill", djBill);
-        room.DJQueue.Enqueue(djBill);
-        room.NextDJSession();
+        room.HostQueue.Enqueue(djBill);
+        room.NextSession();
     }
 
     public override async Task OnConnectedAsync()
@@ -46,7 +46,7 @@ public class RoomHub : Hub
         if (!room.Members.TryGetValue(userID, out member))
             room.Members[Context.ConnectionId] = member = new RoomMember(userID);
 
-        await Clients.Caller.SendAsync("ReceiveDJSession", room.DJSession);
+        await Clients.Caller.SendAsync("ReceiveSession", room.Session);
 
         await base.OnConnectedAsync();
     }
@@ -59,8 +59,8 @@ public class RoomHub : Hub
         await Groups.RemoveFromGroupAsync(userID, room.Name);
         room.Members.Remove(userID, out _);
 
-        if (room.DJSession?.DJ.ID == userID)
-            room.NextDJSession();
+        if (room.Session?.Host.ID == userID)
+            room.NextSession();
 
         await base.OnDisconnectedAsync(exception);
     }
@@ -71,45 +71,45 @@ public class Room
     private readonly ILogger logger;
     private readonly IHubContext<RoomHub> roomHubContext;
 
-    public ConcurrentQueue<RoomMember> DJQueue { get; set; } = new();
-    public DJSession? DJSession { get; private set; }
+    public ConcurrentQueue<RoomMember> HostQueue { get; set; } = new();
+    public Session? Session { get; private set; }
 
     public ConcurrentDictionary<string, RoomMember> Members { get; set; } = new();
 
     public string Name { get; set; } = "";
     public string Owner { get; private set; } = "";
 
-    public void NextDJSession()
+    public void NextSession()
     {
-        logger.LogInformation("Advancing to next DJ session...");
-        TimerCallback onDJSessionTimerEnd = async (Object? state) =>
+        logger.LogInformation("Advancing to next session...");
+        TimerCallback onSessionTimerEnd = async (Object? state) =>
         {
-            logger.LogInformation("DJ session timer ended");
-            NextDJSession();
-            await roomHubContext.Clients.Group(Name).SendAsync("ReceiveDJSession", DJSession);
+            logger.LogInformation("Session timer ended");
+            NextSession();
+            await roomHubContext.Clients.Group(Name).SendAsync("ReceiveSession", Session);
         };
 
-        DJSession?.Timer.Dispose();
+        Session?.Timer.Dispose();
 
-        RoomMember? prevDJ = DJSession?.DJ;
-        DJSession = null;
+        RoomMember? prevHost = Session?.Host;
+        Session = null;
 
-        // find a DJ with at least one song 
-        RoomMember? nextDJ;
-        while (DJQueue.TryDequeue(out nextDJ) && nextDJ.SongQueue.Count == 0)
-            nextDJ = null;
+        // find a host with at least one media 
+        RoomMember? nextHost;
+        while (HostQueue.TryDequeue(out nextHost) && nextHost.MediaQueue.Count == 0)
+            nextHost = null;
 
-        // set the new DJ
-        if (nextDJ is null)
+        // set the new host 
+        if (nextHost is null)
         {
-            if (prevDJ?.SongQueue.Count > 0)
-                DJSession = new DJSession(prevDJ, onDJSessionTimerEnd);
+            if (prevHost?.MediaQueue.Count > 0)
+                Session = new Session(prevHost, onSessionTimerEnd);
         }
         else
         {
-            DJSession = new DJSession(nextDJ, onDJSessionTimerEnd);
-            if (prevDJ != null)
-                DJQueue.Enqueue(prevDJ);
+            Session = new Session(nextHost, onSessionTimerEnd);
+            if (prevHost != null)
+                HostQueue.Enqueue(prevHost);
         }
     }
 
@@ -131,7 +131,7 @@ public class Room
 
 public class RoomMember
 {
-    public Queue<Song> SongQueue { get; set; } = new();
+    public Queue<Media> MediaQueue { get; set; } = new();
     public string ID { get; private set; }
 
     public RoomMember(string id)
@@ -142,38 +142,38 @@ public class RoomMember
     public override string ToString() => ID;
 }
 
-public class DJSession
+public class Session
 {
-    public RoomMember DJ { get; private set; }
+    public RoomMember Host { get; private set; }
     public DateTime StartTime { get; private set; } = DateTime.UtcNow;
     public Timer Timer { get; private set; }
 
-    public Song Song { get; set; }
+    public Media Media { get; set; }
     public int Likes { get; set; } = 0;
     public int Dislikes { get; set; } = 0;
 
-    public DJSession(RoomMember dj, TimerCallback onDJSessionEnd)
+    public Session(RoomMember host, TimerCallback onSessionEnd)
     {
-        if (dj.SongQueue.Count == 0)
-            throw new InvalidOperationException("DJ must have at least one song in the queue.");
+        if (host.MediaQueue.Count == 0)
+            throw new InvalidOperationException("Host must have at least one media in the queue.");
 
-        Song = dj.SongQueue.Dequeue();
-        Timer = new Timer(onDJSessionEnd, null, Song.Duration, Timeout.InfiniteTimeSpan);
-        DJ = dj;
+        Media = host.MediaQueue.Dequeue();
+        Timer = new Timer(onSessionEnd, null, Media.Duration, Timeout.InfiniteTimeSpan);
+        Host = host;
     }
 
     public override string ToString()
     {
-        return Song.Link.ToString();
+        return Media.Link.ToString();
     }
 }
 
-public class Song
+public class Media
 {
     public Uri Link { get; set; }
     public TimeSpan Duration { get; private set; }
 
-    public Song(Uri link, TimeSpan duration)
+    public Media(Uri link, TimeSpan duration)
     {
         Link = link;
         Duration = duration;

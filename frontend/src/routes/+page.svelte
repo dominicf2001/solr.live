@@ -1,11 +1,11 @@
 <script lang="ts">
-    import type { DJSession } from "$lib/api";
-    import { HttpTransportType, HubConnectionBuilder, type HubConnection } from "@microsoft/signalr";
+    import type { Session } from "$lib/api";
+    import { HttpTransportType, HubConnectionBuilder } from "@microsoft/signalr";
     import dayjs from "dayjs";
     import "vidstack/bundle";
     import type { MediaPlayerElement } from "vidstack/elements";
 
-    let djSession: DJSession | undefined; 
+    let session: Session | undefined; 
     let player: MediaPlayerElement | undefined;
 
     $effect(()=>{  
@@ -17,13 +17,13 @@
             .withAutomaticReconnect()
             .build();
 
-        connection.on("ReceiveDJSession", (receivedDJSession: DJSession | undefined) => {
-            console.log("Received DJ session");
-            console.log(receivedDJSession);
-            if (!player || !receivedDJSession) return;
+        connection.on("ReceiveSession", (receivedSession: Session | undefined) => {
+            console.log("Received session");
+            console.log(receivedSession);
+            if (!player || !receivedSession) return;
 
-            djSession = receivedDJSession;
-            player.src = djSession.song.link;
+            session = receivedSession;
+            player.src = session.media.link;
         });
 
         connection.start();
@@ -32,8 +32,8 @@
             if (player && canPlay){
                 if (paused) player.play();
 
-                player.currentTime = djSession ? 
-                    dayjs().diff(dayjs(djSession.startTime), "ms") / 1000 :
+                player.currentTime = session ? 
+                    dayjs().diff(dayjs(session.startTime), "ms") / 1000 :
                     0;
             } 
         });

@@ -1,17 +1,17 @@
 export interface RoomMember {
-  songQueue: Array<Song>;
+  songQueue: Array<Media>;
   iD: string;
 }
 
-export interface DJSession {
+export interface Session {
   dJ: RoomMember;
   startTime: string;
-  song: Song;
+  media: Media;
   likes: number;
   dislikes: number;
 }
 
-export interface Song {
+export interface Media {
   link: string;
   duration: string;
 }
