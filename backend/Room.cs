@@ -1,35 +1,38 @@
 using Microsoft.AspNetCore.SignalR;
+using System.Collections.Concurrent;
 
 public class RoomHub : Hub
 {
     private readonly ILogger<RoomHub> logger;
 
-    private static bool testDataInitialized = false;
-    static Room room = new("Test Room");
+    private static bool initialized = false;
+    static Room room;
 
-    public RoomHub(ILogger<RoomHub> logger)
+    public RoomHub(ILogger<RoomHub> logger, IHubContext<RoomHub> roomHubContext)
     {
         this.logger = logger;
-        if (!testDataInitialized)
+        if (!initialized)
         {
+            room = new Room("Test Room", roomHubContext, logger);
             InitializeTestData();
-            testDataInitialized = true;
+            initialized = true;
         }
     }
 
     private void InitializeTestData()
     {
-        Uri testSongUrl = new Uri("https://www.youtube.com/watch?v=G9M3GVejHNE");
+        logger.LogInformation("Initializing test data...");
         RoomMember djBill = new RoomMember("DJ Bill")
         {
             SongQueue = new Queue<Song>(new[]
             {
-                new Song(testSongUrl)
+                new Song(new Uri("https://www.youtube.com/watch?v=_Td7JjCTfyc"), new TimeSpan(0, 0, 30)),
+                new Song(new Uri("https://www.youtube.com/watch?v=d95PPykB2vE"), new TimeSpan(0, 0, 30)),
             })
         };
         room.Members.TryAdd("djBill", djBill);
         room.DJQueue.Enqueue(djBill);
-        room.nextDJ();
+        room.NextDJSession();
     }
 
     public override async Task OnConnectedAsync()
@@ -43,7 +46,7 @@ public class RoomHub : Hub
         if (!room.Members.TryGetValue(userID, out member))
             room.Members[Context.ConnectionId] = member = new RoomMember(userID);
 
-        await Clients.Caller.SendAsync("ReceiveSongSession", room.SongSession);
+        await Clients.Caller.SendAsync("ReceiveDJSession", room.DJSession);
 
         await base.OnConnectedAsync();
     }
@@ -54,59 +57,42 @@ public class RoomHub : Hub
         logger.LogInformation("User disconnected: {UserID}", userID);
 
         await Groups.RemoveFromGroupAsync(userID, room.Name);
-        room.Members.Remove(userID);
+        room.Members.Remove(userID, out _);
 
-        if (room.DJ?.ID == userID)
-            room.nextDJ();
+        if (room.DJSession?.DJ.ID == userID)
+            room.NextDJSession();
 
         await base.OnDisconnectedAsync(exception);
     }
 }
 
-public class Song
-{
-    public Uri Link { get; set; }
-
-    public Song(Uri link)
-    {
-        Link = link;
-    }
-}
-
-public class SongSession
-{
-    public DateTime StartTime { get; private set; } = DateTime.Now;
-    public Song Song { get; set; }
-    public int Likes { get; set; } = 0;
-    public int Dislikes { get; set; } = 0;
-
-    public SongSession(Song song)
-    {
-        Song = song;
-    }
-
-    public override string ToString()
-    {
-        return Song.Link.ToString();
-    }
-}
-
 public class Room
 {
-    public Queue<RoomMember> DJQueue { get; set; } = new();
+    private readonly ILogger logger;
+    private readonly IHubContext<RoomHub> roomHubContext;
 
-    public Dictionary<string, RoomMember> Members { get; set; } = new();
-    public SongSession? SongSession { get; private set; }
-    public RoomMember? DJ { get; private set; }
+    public ConcurrentQueue<RoomMember> DJQueue { get; set; } = new();
+    public DJSession? DJSession { get; private set; }
+
+    public ConcurrentDictionary<string, RoomMember> Members { get; set; } = new();
 
     public string Name { get; set; } = "";
     public string Owner { get; private set; } = "";
 
-    public void nextDJ()
+    public void NextDJSession()
     {
-        RoomMember? prevDJ = DJ;
-        DJ = null;
-        SongSession = null;
+        logger.LogInformation("Advancing to next DJ session...");
+        TimerCallback onDJSessionTimerEnd = async (Object? state) =>
+        {
+            logger.LogInformation("DJ session timer ended");
+            NextDJSession();
+            await roomHubContext.Clients.Group(Name).SendAsync("ReceiveDJSession", DJSession);
+        };
+
+        DJSession?.Timer.Dispose();
+
+        RoomMember? prevDJ = DJSession?.DJ;
+        DJSession = null;
 
         // find a DJ with at least one song 
         RoomMember? nextDJ;
@@ -117,24 +103,21 @@ public class Room
         if (nextDJ is null)
         {
             if (prevDJ?.SongQueue.Count > 0)
-            {
-
-                DJ = prevDJ;
-                SongSession = new SongSession(prevDJ.SongQueue.Dequeue());
-            }
+                DJSession = new DJSession(prevDJ, onDJSessionTimerEnd);
         }
         else
         {
-            DJ = nextDJ;
-            SongSession = new SongSession(nextDJ.SongQueue.Dequeue());
+            DJSession = new DJSession(nextDJ, onDJSessionTimerEnd);
             if (prevDJ != null)
                 DJQueue.Enqueue(prevDJ);
         }
     }
 
-    public Room(string name)
+    public Room(string name, IHubContext<RoomHub> roomHubContext, ILogger logger)
     {
-        this.Name = name;
+        this.roomHubContext = roomHubContext;
+        this.logger = logger;
+        Name = name;
     }
 
     public override string ToString()
@@ -157,4 +140,42 @@ public class RoomMember
     }
 
     public override string ToString() => ID;
+}
+
+public class DJSession
+{
+    public RoomMember DJ { get; private set; }
+    public DateTime StartTime { get; private set; } = DateTime.UtcNow;
+    public Timer Timer { get; private set; }
+
+    public Song Song { get; set; }
+    public int Likes { get; set; } = 0;
+    public int Dislikes { get; set; } = 0;
+
+    public DJSession(RoomMember dj, TimerCallback onDJSessionEnd)
+    {
+        if (dj.SongQueue.Count == 0)
+            throw new InvalidOperationException("DJ must have at least one song in the queue.");
+
+        Song = dj.SongQueue.Dequeue();
+        Timer = new Timer(onDJSessionEnd, null, Song.Duration, Timeout.InfiniteTimeSpan);
+        DJ = dj;
+    }
+
+    public override string ToString()
+    {
+        return Song.Link.ToString();
+    }
+}
+
+public class Song
+{
+    public Uri Link { get; set; }
+    public TimeSpan Duration { get; private set; }
+
+    public Song(Uri link, TimeSpan duration)
+    {
+        Link = link;
+        Duration = duration;
+    }
 }
