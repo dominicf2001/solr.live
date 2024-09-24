@@ -1,15 +1,37 @@
 <script lang="ts">
-    import type { Room, RoomMember, Session } from "$lib/api";
+    import type { Media, Room, RoomMember } from "$lib/api";
+    import type { HubConnection } from "@microsoft/signalr";
     import { HttpTransportType, HubConnectionBuilder } from "@microsoft/signalr";
     import dayjs from "dayjs";
     import "vidstack/bundle";
     import type { MediaPlayerElement } from "vidstack/elements";
 
-    let room: Room | undefined = $state(undefined); 
-    let player: MediaPlayerElement | undefined = $state(undefined);
+    function queueMedia(event: Event){
+        event.preventDefault(); 
+        console.log(event);
+        const formElem = event.target as HTMLFormElement;
+        const formData = new FormData(formElem); 
 
-    $effect(()=>{  
-        const connection = new HubConnectionBuilder()
+        const songURL = formData.get("songURL");
+        const duration = formData.get("duration");
+        console.log("Queuing media", songURL, duration);
+        if (songURL && duration){
+            connection.invoke("QueueMedia", {
+                link: songURL,
+                duration: duration
+            } as Media);
+            formElem.reset();
+        }
+    }
+
+    let connection: HubConnection;
+    let room: Room | undefined = $state(undefined); 
+    let thisRoomMember: RoomMember | undefined = $state(undefined);
+
+    let mediaPlayer: MediaPlayerElement | undefined = $state(undefined);
+
+    $effect(() => {  
+        connection = new HubConnectionBuilder()
             .withUrl("http://192.168.4.29:5066/roomHub", {
                 skipNegotiation: true,
                 transport: HttpTransportType.WebSockets
@@ -22,8 +44,18 @@
 
             room = receivedRoom;
 
-            if (!player) return;
-            player.src = room?.session?.media?.link ?? "";
+            if (!mediaPlayer) return;
+            mediaPlayer.src = room?.session?.media?.link ?? "";
+        });
+
+        connection.on("ReceiveThisRoomMember", (receivedMember: RoomMember) => {
+            console.log("Received this room member", receivedMember);
+            thisRoomMember = receivedMember;
+        });
+
+        connection.on("ReceiveHostQueue", (receivedQueue: Array<RoomMember>) => {
+            console.log("Received host queue", receivedQueue);
+            if (room) room.hostQueue = receivedQueue;
         });
 
         connection.on("UserConnected", (receivedMember: RoomMember) => {
@@ -38,11 +70,11 @@
 
         connection.start();
 
-        const unsubPlayer = player?.subscribe(({ paused, canPlay }) => {
-            if (player && canPlay){
-                if (paused) player.play();
+        const unsubPlayer = mediaPlayer?.subscribe(({ paused, canPlay }) => {
+            if (mediaPlayer && canPlay){
+                if (paused) mediaPlayer.play();
 
-                player.currentTime = room?.session ? 
+                mediaPlayer.currentTime = room?.session ? 
                     dayjs().diff(dayjs(room.session.startTime), "ms") / 1000 :
                     0;
             } 
@@ -57,18 +89,18 @@
 
 <section class="room-info">
     <h1 id="roomName">{ room?.name ?? "Empty Room" }</h1>
-    <p class="room-host">Host: {room?.session?.host?.id ?? "Unknown"}</p>
+    <p class="room-host">Host: {room?.session?.host?.id ?? "None"}</p>
 </section>
 
 <section class="media-player-container">
-    <media-player bind:this={player} preload="auto" streamType="ll-live" muted={true} class="media-player">
+    <media-player bind:this={mediaPlayer} preload="auto" streamType="ll-live" muted={true} class="media-player">
       <media-provider></media-provider>
       <media-video-layout></media-video-layout>
     </media-player>
 </section>
 
 <section class="room-details">
-    <div class="members">
+    <div class="item-list">
         <h2>Members</h2>
         <ul>
             {#each Object.values(room?.members ?? []) as m (m.id)}
@@ -76,11 +108,34 @@
             {/each}
         </ul>
     </div>
-    <div class="host-queue">
-        <h2>Host Queue</h2>
+    <div class="item-list">
+        <div style="display: flex;">
+            <h2>Host Queue</h2>
+            <button onclick={() => connection.invoke("ToggleHostQueueStatus")} id="joinQueueBtn">
+                {(room?.hostQueue?.find(h => h.id == thisRoomMember?.id) || room?.session?.host.id == thisRoomMember?.id) ? "Leave queue" : "Join queue"}
+            </button>
+        </div>
         <ul>
             {#each Object.values(room?.hostQueue ?? []) as m (m.id)}
                 <li>{m.id}</li>
+            {/each}
+        </ul>
+    </div>
+</section>
+
+<section class="room-details">
+    <div class="item-list">
+        <form onsubmit={queueMedia} id="songForm">
+            <input value="https://www.youtube.com/watch?v=Fb2q141rMNE" placeholder="URL" name="songURL" required />
+            <input value="00:04:51" placeholder="Duration" name="duration" required />
+            <button>Queue song</button>
+        </form>
+    </div>
+    <div class="item-list">
+        <h2>Song Queue</h2>
+        <ul>
+            {#each thisRoomMember?.mediaQueue ?? [] as song}
+                <li>{song.link}</li>
             {/each}
         </ul>
     </div>
@@ -115,6 +170,15 @@
         font-size: 1.5rem;
         margin-bottom: 0.5rem;
         color: #34495e;
+    }
+
+    #songForm input, button  {
+        height: 40px;
+    }
+ 
+    #joinQueueBtn {
+        margin-left: 1rem;
+        padding: 5px;
     }
 
     /* Room Info Section */
@@ -161,7 +225,7 @@
         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
     }
 
-    .members, .host-queue {
+    .item-list, .host-queue {
         width: 45%;
     }
 
@@ -189,7 +253,7 @@
             align-items: center;
         }
 
-        .members, .host-queue {
+        .item-list {
             width: 90%;
             margin-bottom: 2rem;
         }

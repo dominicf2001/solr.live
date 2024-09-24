@@ -22,14 +22,14 @@ public class RoomHub : Hub
     private void InitializeTestData()
     {
         logger.LogInformation("Initializing test data...");
-        RoomMember djBill = new RoomMember("DJ Bill")
-        {
-            MediaQueue = new Queue<Media>(new[]
-            {
-                new Media(new Uri("https://www.youtube.com/watch?v=5IsSpAOD6K8"), new TimeSpan(0, 3, 44)),
-                new Media(new Uri("https://www.youtube.com/watch?v=_3eC35LoF4U"), new TimeSpan(0, 3, 53)),
-            })
-        };
+        RoomMember djBill = new RoomMember("DJ Bill");
+        /*{*/
+        /*    MediaQueue = new Queue<Media>(new[]*/
+        /*    {*/
+        /*        new Media(new Uri("https://www.youtube.com/watch?v=5IsSpAOD6K8"), new TimeSpan(0, 3, 44)),*/
+        /*        new Media(new Uri("https://www.youtube.com/watch?v=_3eC35LoF4U"), new TimeSpan(0, 3, 53)),*/
+        /*    })*/
+        /*};*/
         room.Members.TryAdd("djBill", djBill);
         room.HostQueue.Enqueue(djBill);
         room.NextSession();
@@ -47,9 +47,57 @@ public class RoomHub : Hub
             room.Members[Context.ConnectionId] = member = new RoomMember(userID);
 
         await Clients.Caller.SendAsync("ReceiveRoom", room);
+        await Clients.Caller.SendAsync("ReceiveThisRoomMember", member);
+
         await Clients.Group(room.Name).SendAsync("UserConnected", member);
 
         await base.OnConnectedAsync();
+    }
+
+    public async Task ToggleHostQueueStatus()
+    {
+        string userID = Context.ConnectionId;
+        logger.LogInformation("User attempting to join host queue: {UserID}", userID);
+
+        room.Members.TryGetValue(userID, out RoomMember? member);
+        if (member is null)
+            return;
+
+        bool inHostQueue = room.HostQueue.FirstOrDefault(h => h.ID == userID) is not null;
+        bool isHost = room.Session?.Host.ID == userID;
+        if (isHost)
+        {
+            room.NextSession(preventRequeuePrevHost: true);
+        }
+        else if (inHostQueue)
+        {
+            room.RemoveFromHostQueue(userID);
+        }
+        else
+        {
+            logger.LogInformation("User joined host queue: {UserID}", userID);
+            room.HostQueue.Enqueue(member);
+
+            if (room.Session is null)
+            {
+                logger.LogInformation("No room session, setting {UserID} as host", userID);
+                room.NextSession();
+            }
+        }
+
+        await Clients.Group(room.Name).SendAsync("ReceiveHostQueue", room.HostQueue);
+    }
+
+    public async Task QueueMedia(Media media)
+    {
+        string userID = Context.ConnectionId;
+        logger.LogInformation("User: {UserID} attempting to queue media {MediaLink}", userID, media.Link);
+        if (room.Members.TryGetValue(userID, out RoomMember? member))
+        {
+            logger.LogInformation("User: {UserID} queuing media {MediaLink}", userID, media.Link);
+            member.MediaQueue.Enqueue(media);
+            await Clients.Caller.SendAsync("ReceiveThisRoomMember", member);
+        }
     }
 
     public override async Task OnDisconnectedAsync(Exception? exception)
@@ -57,13 +105,18 @@ public class RoomHub : Hub
         string userID = Context.ConnectionId;
         logger.LogInformation("User disconnected: {UserID}", userID);
 
+        if (room.Session?.Host.ID == userID)
+            room.NextSession();
+
+        if (room.HostQueue.FirstOrDefault(h => h.ID == userID) is not null)
+        {
+            room.RemoveFromHostQueue(userID);
+            await Clients.Group(room.Name).SendAsync("ReceiveHostQueue", room.HostQueue);
+        }
 
         await Groups.RemoveFromGroupAsync(userID, room.Name);
         await Clients.Group(room.Name).SendAsync("UserDisconnected", userID);
         room.Members.Remove(userID, out _);
-
-        if (room.Session?.Host.ID == userID)
-            room.NextSession();
 
         await base.OnDisconnectedAsync(exception);
     }
@@ -82,14 +135,24 @@ public class Room
     public string Name { get; set; } = "";
     public string Owner { get; private set; } = "";
 
-    public void NextSession()
+    public void RemoveFromHostQueue(string userID)
+    {
+        List<RoomMember> remainingMembers = new List<RoomMember>();
+        while (HostQueue.TryDequeue(out RoomMember? member))
+            if (member.ID != userID)
+                remainingMembers.Add(member);
+
+        foreach (var remainingMember in remainingMembers)
+            HostQueue.Enqueue(remainingMember);
+    }
+
+    public async void NextSession(bool preventRequeuePrevHost = false)
     {
         logger.LogInformation("Advancing to next session...");
-        TimerCallback onSessionTimerEnd = async (Object? state) =>
+        TimerCallback onSessionTimerEnd = (Object? state) =>
         {
             logger.LogInformation("Session timer ended");
             NextSession();
-            await roomHubContext.Clients.Group(Name).SendAsync("ReceiveRoom", this);
         };
 
         Session?.Timer.Dispose();
@@ -103,16 +166,24 @@ public class Room
             nextHost = null;
 
         // set the new host 
-        if (nextHost is null)
-        {
-            if (prevHost?.MediaQueue.Count > 0)
-                Session = new Session(prevHost, onSessionTimerEnd);
-        }
-        else
+        if (nextHost != null)
         {
             Session = new Session(nextHost, onSessionTimerEnd);
             if (prevHost != null)
                 HostQueue.Enqueue(prevHost);
+        }
+        else
+        {
+            // fallback to previous host, if allowed
+            if (!preventRequeuePrevHost && prevHost?.MediaQueue.Count > 0)
+                Session = new Session(prevHost, onSessionTimerEnd);
+        }
+
+        await roomHubContext.Clients.Group(Name).SendAsync("ReceiveRoom", this);
+        if (Session != null)
+        {
+            logger.LogInformation("Notifying new host: {HostID} of changes", Session.Host.ID);
+            await roomHubContext.Clients.Client(Session.Host.ID).SendAsync("ReceiveThisRoomMember", Session.Host);
         }
     }
 
