@@ -26,8 +26,8 @@ public class RoomHub : Hub
         {
             MediaQueue = new Queue<Media>(new[]
             {
-                new Media(new Uri("https://www.youtube.com/watch?v=_Td7JjCTfyc"), new TimeSpan(0, 0, 30)),
-                new Media(new Uri("https://www.youtube.com/watch?v=d95PPykB2vE"), new TimeSpan(0, 0, 30)),
+                new Media(new Uri("https://www.youtube.com/watch?v=5IsSpAOD6K8"), new TimeSpan(0, 3, 44)),
+                new Media(new Uri("https://www.youtube.com/watch?v=_3eC35LoF4U"), new TimeSpan(0, 3, 53)),
             })
         };
         room.Members.TryAdd("djBill", djBill);
@@ -46,7 +46,8 @@ public class RoomHub : Hub
         if (!room.Members.TryGetValue(userID, out member))
             room.Members[Context.ConnectionId] = member = new RoomMember(userID);
 
-        await Clients.Caller.SendAsync("ReceiveSession", room.Session);
+        await Clients.Caller.SendAsync("ReceiveRoom", room);
+        await Clients.Group(room.Name).SendAsync("UserConnected", member);
 
         await base.OnConnectedAsync();
     }
@@ -56,7 +57,9 @@ public class RoomHub : Hub
         string userID = Context.ConnectionId;
         logger.LogInformation("User disconnected: {UserID}", userID);
 
+
         await Groups.RemoveFromGroupAsync(userID, room.Name);
+        await Clients.Group(room.Name).SendAsync("UserDisconnected", userID);
         room.Members.Remove(userID, out _);
 
         if (room.Session?.Host.ID == userID)
@@ -86,7 +89,7 @@ public class Room
         {
             logger.LogInformation("Session timer ended");
             NextSession();
-            await roomHubContext.Clients.Group(Name).SendAsync("ReceiveSession", Session);
+            await roomHubContext.Clients.Group(Name).SendAsync("ReceiveRoom", this);
         };
 
         Session?.Timer.Dispose();

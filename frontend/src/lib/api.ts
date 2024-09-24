@@ -1,10 +1,18 @@
+export interface Room {
+  hostQueue: Array<RoomMember>;
+  session: Session | null;
+  members: Record<string, RoomMember>;
+  name: string;
+  owner: string;
+}
+
 export interface RoomMember {
-  songQueue: Array<Media>;
-  iD: string;
+  mediaQueue: Array<Media>;
+  id: string;
 }
 
 export interface Session {
-  dJ: RoomMember;
+  host: RoomMember;
   startTime: string;
   media: Media;
   likes: number;
