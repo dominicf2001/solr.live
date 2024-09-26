@@ -6,9 +6,12 @@
     import "vidstack/bundle";
     import type { MediaPlayerElement } from "vidstack/elements";
 
+    function generateRandomID() {
+        return Math.random().toString(36).substring(2, 9);
+    }
+
     function queueMedia(event: Event){
         event.preventDefault(); 
-        console.log(event);
         const formElem = event.target as HTMLFormElement;
         const formData = new FormData(formElem); 
 
@@ -25,16 +28,26 @@
     }
 
     let connection: HubConnection;
-    let room: Room | undefined = $state(undefined); 
-    let thisRoomMember: RoomMember | undefined = $state(undefined);
+    let accessToken: string | null;
 
+    let room: Room | undefined = $state(undefined); 
     let mediaPlayer: MediaPlayerElement | undefined = $state(undefined);
 
+    let ownRoomMember: RoomMember | undefined = $state(undefined);
+
     $effect(() => {  
+        accessToken = localStorage.getItem("accessToken");
+        if (!accessToken){
+            accessToken = generateRandomID();
+            localStorage.setItem("accessToken", accessToken);
+        }
+
+        // WEBSOCKET CONNECTION
         connection = new HubConnectionBuilder()
             .withUrl("http://192.168.4.29:5066/roomHub", {
                 skipNegotiation: true,
-                transport: HttpTransportType.WebSockets
+                transport: HttpTransportType.WebSockets,
+                accessTokenFactory: () => accessToken as string
             })
             .withAutomaticReconnect()
             .build();
@@ -48,9 +61,9 @@
             mediaPlayer.src = room?.session?.media?.link ?? "";
         });
 
-        connection.on("ReceiveThisRoomMember", (receivedMember: RoomMember) => {
-            console.log("Received this room member", receivedMember);
-            thisRoomMember = receivedMember;
+        connection.on("ReceiveOwnRoomMember", (receivedMember: RoomMember) => {
+            console.log("Received own room member", receivedMember);
+            ownRoomMember = receivedMember;
         });
 
         connection.on("ReceiveHostQueue", (receivedQueue: Array<RoomMember>) => {
@@ -58,18 +71,19 @@
             if (room) room.hostQueue = receivedQueue;
         });
 
-        connection.on("UserConnected", (receivedMember: RoomMember) => {
-            console.log("User connected", receivedMember);
+        connection.on("MemberJoined", (receivedMember: RoomMember) => {
+            console.log("Member joined", receivedMember);
             if (room) room.members[receivedMember.id] = receivedMember;
         });
 
-        connection.on("UserDisconnected", (memberID: string) => {
-            console.log("User disconnected", memberID);
+        connection.on("MemberLeft", (memberID: string) => {
+            console.log("Member left", memberID);
             delete room?.members?.[memberID];
         });
 
         connection.start();
 
+        // MEDIA PLAYER
         const unsubPlayer = mediaPlayer?.subscribe(({ paused, canPlay }) => {
             if (mediaPlayer && canPlay){
                 if (paused) mediaPlayer.play();
@@ -112,7 +126,7 @@
         <div style="display: flex;">
             <h2>Host Queue</h2>
             <button onclick={() => connection.invoke("ToggleHostQueueStatus")} id="joinQueueBtn">
-                {(room?.hostQueue?.find(h => h.id == thisRoomMember?.id) || room?.session?.host.id == thisRoomMember?.id) ? "Leave queue" : "Join queue"}
+                {(room?.hostQueue?.find(h => h.id == ownRoomMember?.id) || room?.session?.host.id == ownRoomMember?.id) ? "Leave queue" : "Join queue"}
             </button>
         </div>
         <ul>
@@ -134,7 +148,7 @@
     <div class="item-list">
         <h2>Song Queue</h2>
         <ul>
-            {#each thisRoomMember?.mediaQueue ?? [] as song}
+            {#each ownRoomMember?.mediaQueue ?? [] as song, index (index)}
                 <li>{song.link}</li>
             {/each}
         </ul>

@@ -1,6 +1,11 @@
+using Microsoft.AspNetCore.SignalR;
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSignalR();
+builder.Services.AddSingleton<IUserIdProvider, NameUserIdProvider>();
+builder.Services.AddSingleton<RoomManager>();
+builder.Services.AddHostedService<RoomManagerBackground>();
 
 var app = builder.Build();
 
