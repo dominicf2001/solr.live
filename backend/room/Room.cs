@@ -1,82 +1,13 @@
 using Microsoft.AspNetCore.SignalR;
 using System.Collections.Concurrent;
 
-
-public class RoomManager
-{
-    private readonly ConcurrentDictionary<string, Room> rooms = new();
-    private readonly ILogger<RoomManager> logger;
-    private readonly IHubContext<RoomHub> roomHubContext;
-
-    public RoomManager(ILogger<RoomManager> logger, IHubContext<RoomHub> roomHubContext)
-    {
-        this.logger = logger;
-        this.roomHubContext = roomHubContext;
-    }
-
-    public Room GetRoom(string roomName)
-    {
-        return rooms.GetOrAdd(roomName, name => new Room(name, roomHubContext, logger));
-    }
-
-    public IEnumerable<Room> GetAllRooms() => rooms.Values;
-}
-
-public class RoomManagerBackground : BackgroundService
-{
-    private readonly RoomManager roomManager;
-    private readonly ILogger<RoomManager> logger;
-    private readonly TimeSpan timeoutPeriod = TimeSpan.FromSeconds(15);
-    private readonly TimeSpan cleanupInterval = TimeSpan.FromSeconds(15);
-
-    public RoomManagerBackground(ILogger<RoomManager> logger, RoomManager roomManager)
-    {
-        this.logger = logger;
-        this.roomManager = roomManager;
-    }
-
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            CleanupInactiveUsers();
-            await Task.Delay(cleanupInterval, stoppingToken);
-        }
-    }
-
-    public void CleanupInactiveUsers()
-    {
-        logger.LogInformation("Cleaning inactive users...");
-
-        foreach (Room room in roomManager.GetAllRooms())
-        {
-            logger.LogInformation($"Cleaning room: {room.Name}");
-            foreach (RoomMember member in room.Members.Values)
-            {
-                logger.LogInformation($"Checking user: {member.ID}. Status: {member.CurrentStatus}");
-                if (member.CurrentStatus == RoomMember.Status.Connected || member.DisconnectionDate is null)
-                    continue;
-
-                TimeSpan? disconnectionPeriod = DateTime.Now - member.DisconnectionDate;
-                logger.LogInformation($"Checking user: {member.ID}. Disconnection date: {member.DisconnectionDate}");
-                if (disconnectionPeriod != null && disconnectionPeriod > timeoutPeriod)
-                {
-                    logger.LogInformation($"Cleaned up user: {member.ID} after timeout.");
-                    room.RemoveMember(member.ID);
-                }
-            }
-
-        }
-    }
-}
-
 public class RoomHub : Hub
 {
     private static bool initialized = false;
     private readonly ILogger logger;
     private RoomManager roomManager;
 
-    public RoomHub(ILogger<RoomHub> logger, RoomManager roomManager, IHubContext<RoomHub> roomHubContext)
+    public RoomHub(ILogger<RoomHub> logger, RoomManager roomManager)
     {
         this.logger = logger;
         this.roomManager = roomManager;
@@ -87,7 +18,10 @@ public class RoomHub : Hub
         Room room = roomManager.GetRoom("Test");
         string? userID = Context.GetHttpContext()?.Request.Query["access_token"];
         if (userID is null)
+        {
+            await base.OnConnectedAsync();
             return;
+        }
 
         await Groups.AddToGroupAsync(Context.ConnectionId, room.Name);
 
@@ -123,7 +57,7 @@ public class RoomHub : Hub
         bool isHost = room.Session?.Host.ID == userID;
         if (isHost)
         {
-            room.NextSession(preventRequeue: true);
+            await room.NextSession(preventRequeue: true);
         }
         else if (inHostQueue)
         {
@@ -137,7 +71,7 @@ public class RoomHub : Hub
             if (room.Session is null)
             {
                 logger.LogInformation("No room session, setting {UserID} as host", userID);
-                room.NextSession();
+                await room.NextSession();
             }
         }
 
@@ -191,19 +125,13 @@ public class Room
 
     public void RemoveFromHostQueue(string userID)
     {
-        List<RoomMember> remainingMembers = new List<RoomMember>();
-        while (HostQueue.TryDequeue(out RoomMember? member))
-            if (member.ID != userID)
-                remainingMembers.Add(member);
-
-        foreach (var remainingMember in remainingMembers)
-            HostQueue.Enqueue(remainingMember);
+        HostQueue = new ConcurrentQueue<RoomMember>(HostQueue.Where(member => member.ID != userID));
     }
 
-    public async void RemoveMember(string userID)
+    public async Task RemoveMember(string userID)
     {
         if (Session?.Host.ID == userID)
-            NextSession();
+            await NextSession();
 
         if (HostQueue.FirstOrDefault(h => h.ID == userID) is not null)
         {
@@ -215,13 +143,13 @@ public class Room
         await roomHubContext.Clients.Group(Name).SendAsync("MemberLeft", userID);
     }
 
-    public async void NextSession(bool preventRequeue = false)
+    public async Task NextSession(bool preventRequeue = false)
     {
         logger.LogInformation("Advancing to next session...");
-        TimerCallback onSessionTimerEnd = (Object? state) =>
+        TimerCallback onSessionTimerEnd = async (Object? state) =>
         {
             logger.LogInformation("Session timer ended");
-            NextSession();
+            await NextSession();
         };
 
         Session?.Timer.Dispose();
@@ -290,7 +218,7 @@ public class RoomMember
     {
         CurrentStatus = newStatus;
         DisconnectionDate = newStatus is Status.Disconnected ?
-            DateTime.Now :
+            DateTime.UtcNow :
             null;
     }
 

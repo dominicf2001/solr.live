@@ -1,7 +1,10 @@
 <script lang="ts">
     import type { Media, Room, RoomMember } from "$lib/api";
     import type { HubConnection } from "@microsoft/signalr";
-    import { HttpTransportType, HubConnectionBuilder } from "@microsoft/signalr";
+    import {
+        HttpTransportType,
+        HubConnectionBuilder,
+    } from "@microsoft/signalr";
     import dayjs from "dayjs";
     import "vidstack/bundle";
     import type { MediaPlayerElement } from "vidstack/elements";
@@ -10,18 +13,25 @@
         return Math.random().toString(36).substring(2, 9);
     }
 
-    function queueMedia(event: Event){
-        event.preventDefault(); 
+    function isInHostQueue(): boolean {
+        return (
+            room?.hostQueue?.some((h) => h.id === ownRoomMember?.id) ||
+            room?.session?.host.id === ownRoomMember?.id
+        );
+    }
+
+    function queueMedia(event: Event) {
+        event.preventDefault();
         const formElem = event.target as HTMLFormElement;
-        const formData = new FormData(formElem); 
+        const formData = new FormData(formElem);
 
         const songURL = formData.get("songURL");
         const duration = formData.get("duration");
         console.log("Queuing media", songURL, duration);
-        if (songURL && duration){
+        if (songURL && duration) {
             connection.invoke("QueueMedia", {
                 link: songURL,
-                duration: duration
+                duration: duration,
             } as Media);
             formElem.reset();
         }
@@ -30,14 +40,14 @@
     let connection: HubConnection;
     let accessToken: string | null;
 
-    let room: Room | undefined = $state(undefined); 
+    let room: Room | undefined = $state(undefined);
     let mediaPlayer: MediaPlayerElement | undefined = $state(undefined);
 
     let ownRoomMember: RoomMember | undefined = $state(undefined);
 
-    $effect(() => {  
+    $effect(() => {
         accessToken = localStorage.getItem("accessToken");
-        if (!accessToken){
+        if (!accessToken) {
             accessToken = generateRandomID();
             localStorage.setItem("accessToken", accessToken);
         }
@@ -47,7 +57,7 @@
             .withUrl("http://192.168.4.29:5066/roomHub", {
                 skipNegotiation: true,
                 transport: HttpTransportType.WebSockets,
-                accessTokenFactory: () => accessToken as string
+                accessTokenFactory: () => accessToken as string,
             })
             .withAutomaticReconnect()
             .build();
@@ -57,6 +67,7 @@
 
             room = receivedRoom;
 
+            console.log(mediaPlayer);
             if (!mediaPlayer) return;
             mediaPlayer.src = room?.session?.media?.link ?? "";
         });
@@ -66,10 +77,13 @@
             ownRoomMember = receivedMember;
         });
 
-        connection.on("ReceiveHostQueue", (receivedQueue: Array<RoomMember>) => {
-            console.log("Received host queue", receivedQueue);
-            if (room) room.hostQueue = receivedQueue;
-        });
+        connection.on(
+            "ReceiveHostQueue",
+            (receivedQueue: Array<RoomMember>) => {
+                console.log("Received host queue", receivedQueue);
+                if (room) room.hostQueue = receivedQueue;
+            },
+        );
 
         connection.on("MemberJoined", (receivedMember: RoomMember) => {
             console.log("Member joined", receivedMember);
@@ -85,31 +99,36 @@
 
         // MEDIA PLAYER
         const unsubPlayer = mediaPlayer?.subscribe(({ paused, canPlay }) => {
-            if (mediaPlayer && canPlay){
+            if (mediaPlayer && canPlay) {
                 if (paused) mediaPlayer.play();
 
-                mediaPlayer.currentTime = room?.session ? 
-                    dayjs().diff(dayjs(room.session.startTime), "ms") / 1000 :
-                    0;
-            } 
+                mediaPlayer.currentTime = room?.session
+                    ? dayjs().diff(dayjs(room.session.startTime), "ms") / 1000
+                    : 0;
+            }
         });
 
         return () => {
             unsubPlayer?.();
             connection.stop();
-        }
+        };
     });
 </script>
 
-<section class="room-info">
-    <h1 id="roomName">{ room?.name ?? "Empty Room" }</h1>
+<header class="room-info">
+    <h1 id="roomName">{room?.name ?? "Empty Room"}</h1>
     <p class="room-host">Host: {room?.session?.host?.id ?? "None"}</p>
-</section>
+</header>
 
 <section class="media-player-container">
-    <media-player bind:this={mediaPlayer} preload="auto" streamType="ll-live" muted={true} class="media-player">
-      <media-provider></media-provider>
-      <media-video-layout></media-video-layout>
+    <media-player
+        class="media-player"
+        bind:this={mediaPlayer}
+        preload="auto"
+        muted
+    >
+        <media-provider></media-provider>
+        <media-video-layout></media-video-layout>
     </media-player>
 </section>
 
@@ -117,20 +136,23 @@
     <div class="item-list">
         <h2>Members</h2>
         <ul>
-            {#each Object.values(room?.members ?? []) as m (m.id)}
-                <li>{m.id}</li>
+            {#each Object.values(room?.members ?? {}) as member (member.id)}
+                <li>{member.id}</li>
             {/each}
         </ul>
     </div>
     <div class="item-list">
-        <div style="display: flex;">
+        <div class="host-queue-header">
             <h2>Host Queue</h2>
-            <button onclick={() => connection.invoke("ToggleHostQueueStatus")} id="joinQueueBtn">
-                {(room?.hostQueue?.find(h => h.id == ownRoomMember?.id) || room?.session?.host.id == ownRoomMember?.id) ? "Leave queue" : "Join queue"}
+            <button
+                onclick={() => connection.invoke("ToggleHostQueueStatus")}
+                class="queue-button {isInHostQueue() ? 'leave' : 'join'}"
+            >
+                {isInHostQueue() ? "Leave Queue" : "Join Queue"}
             </button>
         </div>
         <ul>
-            {#each Object.values(room?.hostQueue ?? []) as m (m.id)}
+            {#each room?.hostQueue ?? [] as m (m.id)}
                 <li>{m.id}</li>
             {/each}
         </ul>
@@ -140,13 +162,18 @@
 <section class="room-details">
     <div class="item-list">
         <form onsubmit={queueMedia} id="songForm">
-            <input value="https://www.youtube.com/watch?v=Fb2q141rMNE" placeholder="URL" name="songURL" required />
-            <input value="00:04:51" placeholder="Duration" name="duration" required />
-            <button>Queue song</button>
+            <input type="url" placeholder="URL" name="songURL" required />
+            <input
+                type="text"
+                placeholder="Duration (e.g., 00:04:51)"
+                name="duration"
+                required
+            />
+            <button type="submit">Queue Song</button>
         </form>
     </div>
     <div class="item-list">
-        <h2>Song Queue</h2>
+        <h2>Your Song Queue</h2>
         <ul>
             {#each ownRoomMember?.mediaQueue ?? [] as song, index (index)}
                 <li>{song.link}</li>
@@ -156,124 +183,147 @@
 </section>
 
 <style>
-    /* General Styling */
-    * {
+    :root {
+        --primary-color: #2c3e50;
+        --secondary-color: #34495e;
+        --accent-color: #ecf0f1;
+        --text-color: #333;
+        --background-color: #f5f5f5;
+        --font-family: "Arial", sans-serif;
+    }
+
+    h1,
+    h2 {
         margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-    }
-
-    body {
-        font-family: 'Arial', sans-serif;
-        background-color: #f5f5f5;
-        color: #333;
-        line-height: 1.6;
-    }
-
-    h1, h2 {
         font-weight: bold;
     }
 
     h1 {
-        font-size: 2.5rem;
-        color: #2c3e50;
-        margin-bottom: 1rem;
+        font-size: 2rem;
+        color: var(--primary-color);
     }
 
     h2 {
         font-size: 1.5rem;
-        margin-bottom: 0.5rem;
-        color: #34495e;
+        color: var(--secondary-color);
     }
 
-    #songForm input, button  {
-        height: 40px;
+    /* Host Queue Header */
+    .host-queue-header {
+        display: flex;
+        align-items: center;
+        margin-bottom: 1rem;
     }
- 
-    #joinQueueBtn {
+
+    /* Queue Button Styles */
+    .queue-button {
         margin-left: 1rem;
-        padding: 5px;
+        padding: 0.5rem 1rem;
+        font-size: 1rem;
+        color: #ffffff;
+        background-color: #3498db; /* Blue for 'Join Queue' */
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: background-color 0.3s;
+    }
+
+    .queue-button.join:hover {
+        background-color: #2980b9; /* Darker blue on hover */
+    }
+
+    .queue-button.leave {
+        background-color: #e74c3c; /* Red for 'Leave Queue' */
+    }
+
+    .queue-button.leave:hover {
+        background-color: #c0392b; /* Darker red on hover */
     }
 
     /* Room Info Section */
     .room-info {
         text-align: center;
-        padding: 2rem 0;
-        background-color: #ecf0f1;
+        padding: 1rem 0;
+        background-color: var(--accent-color);
         border-bottom: 1px solid #bdc3c7;
     }
 
     .room-host {
-        font-size: 1.25rem;
+        font-size: 1rem;
         color: #7f8c8d;
-        margin-top: 0.5rem;
     }
 
     /* Media Player Section */
     .media-player-container {
-        margin: 2rem auto;
-        max-width: 80%;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        background-color: #fff;
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-        border-radius: 8px;
-        overflow: hidden;
-        padding: 1rem;
+        max-width: 800px;
+        margin: 1rem auto;
+        padding: 0 1rem;
     }
 
     .media-player {
         width: 100%;
-        height: 500px;
+        aspect-ratio: 16/9;
+        background-color: #000;
     }
 
     /* Room Details Section */
     .room-details {
         display: flex;
-        justify-content: space-around;
-        margin: 2rem 0;
-        padding: 2rem;
-        background-color: #ecf0f1;
-        border-radius: 8px;
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        flex-wrap: wrap;
+        justify-content: space-between;
+        margin: 1rem auto;
+        max-width: 800px;
     }
 
-    .item-list, .host-queue {
-        width: 45%;
+    .item-list {
+        flex: 1 1 45%;
+        margin: 1rem 1rem;
     }
 
-    ul {
-        list-style-type: none;
+    .item-list ul {
+        list-style: none;
+        padding: 0;
     }
 
-    li {
+    .item-list li {
         padding: 0.5rem;
-        margin: 0.25rem 0;
+        margin-bottom: 0.5rem;
         background-color: #fff;
         border-radius: 4px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        transition: transform 0.2s ease-in-out;
     }
 
-    li:hover {
-        transform: translateY(-3px);
+    /* Form Styling */
+    form {
+        display: flex;
+        flex-direction: column;
+    }
+
+    form input,
+    form button {
+        padding: 0.5rem;
+        margin-bottom: 0.5rem;
+        font-size: 1rem;
+    }
+
+    form button {
+        background-color: var(--primary-color);
+        color: #fff;
+        border: none;
+        cursor: pointer;
+    }
+
+    form button:hover {
+        background-color: var(--secondary-color);
     }
 
     /* Responsive Design */
-    @media screen and (max-width: 768px) {
+    @media (max-width: 600px) {
         .room-details {
             flex-direction: column;
-            align-items: center;
         }
 
         .item-list {
-            width: 90%;
-            margin-bottom: 2rem;
-        }
-
-        .media-player-container {
-            max-width: 100%;
+            flex: 1 1 100%;
         }
     }
 </style>
