@@ -15,7 +15,15 @@
 
     let room: Room | undefined = $state(undefined);
     let mediaPlayer: MediaPlayerElement | undefined = $state(undefined);
-    let mediaQueue = localStore<Media[]>("mediaQueue", []);
+    let mediaQueue = {
+        value: localStore<Media[]>("mediaQueue", []).value,
+        enqueue: (media: Media) => mediaQueue.value.push(media),
+        dequeue: () => mediaQueue.value.shift() ?? null,
+        remove: (media: Media) => {
+            const index = mediaQueue.value.findIndex((m) => media.id === m.id);
+            mediaQueue.value.splice(index, 1);
+        },
+    };
 
     const isInHostQueue: boolean = $derived.by(
         () => !!room?.hostQueue?.some((h) => h.id === userId),
@@ -29,22 +37,30 @@
         isLoading: false,
         results: [] as Media[],
         input: "",
-        clear: function () {
-            this.input = "";
-            this.results = [];
+        clear: () => {
+            search.input = "";
+            search.results = [];
         },
-        run: async function () {
-            this.results = [];
-            if (!this.input) return;
+        run: async () => {
+            search.results = [];
+            if (!search.input) return;
 
-            this.isLoading = true;
-            this.results = await connection.invoke(
+            search.isLoading = true;
+            search.results = await connection.invoke(
                 "YTSearch",
-                this.input.trim(),
+                search.input.trim(),
             );
-            this.isLoading = false;
+            search.isLoading = false;
         },
     });
+
+    function calculateCurrentTime(): number {
+        if (room?.session) {
+            return dayjs().diff(dayjs(room.session.startTime), "ms") / 1000;
+        } else {
+            return 0;
+        }
+    }
 
     $effect(() => {
         // WEBSOCKET CONNECTION
@@ -72,7 +88,7 @@
 
         connection.on("DequeueMediaQueue", () => {
             console.log("Dequeuing media queue");
-            return mediaQueue.value.shift() ?? null;
+            return mediaQueue.dequeue();
         });
 
         connection.on("MemberJoined", (receivedMember: RoomMember) => {
@@ -92,9 +108,7 @@
             if (mediaPlayer && canPlay) {
                 if (paused) mediaPlayer.play();
 
-                mediaPlayer.currentTime = room?.session
-                    ? dayjs().diff(dayjs(room.session.startTime), "ms") / 1000
-                    : 0;
+                mediaPlayer.currentTime = calculateCurrentTime();
             }
         });
 
@@ -183,7 +197,7 @@
                         type="button"
                         class="search-result media-item"
                         onclick={() => {
-                            mediaQueue.value.push(media);
+                            mediaQueue.enqueue(media);
                             search.clear();
                         }}
                     >
@@ -207,7 +221,7 @@
         <h2 style="margin-bottom: 10px">Your Song Queue</h2>
         <div class="media-container">
             {#each mediaQueue.value as media (media.id)}
-                <button class="media-item" type="button">
+                <div class="media-item">
                     <img
                         src={media.thumbnails[0].url}
                         alt="Thumbnail"
@@ -218,8 +232,12 @@
                         {#if media.duration}
                             <span class="duration">({media.duration})</span>
                         {/if}
+                        <button
+                            onclick={() => mediaQueue.remove(media)}
+                            class="remove-song-button">Remove</button
+                        >
                     </div>
-                </button>
+                </div>
             {/each}
         </div>
     </div>
@@ -380,7 +398,9 @@
     .duration {
         font-size: 0.8em;
         color: #666;
-    } /* Form Styling */
+        margin-bottom: 10px;
+    }
+
     form {
         display: flex;
         flex-direction: column;
@@ -391,6 +411,18 @@
         padding: 0.5rem;
         margin-bottom: 0.5rem;
         font-size: 1rem;
+    }
+
+    .remove-song-button {
+        background-color: var(--primary-color);
+        color: #fff;
+        border: none;
+        width: 25%;
+        cursor: pointer;
+    }
+
+    .remove-song-button:hover {
+        background-color: var(--secondary-color);
     }
 
     #searchButton {
