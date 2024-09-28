@@ -10,6 +10,7 @@ export class LocalStore<T> {
 
 		if (browser) {
 			const item = localStorage.getItem(key);
+			console.log(typeof item);
 			if (item) this.value = this.deserialize(item);
 		}
 

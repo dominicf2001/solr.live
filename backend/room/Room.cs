@@ -1,27 +1,24 @@
 using Microsoft.AspNetCore.SignalR;
 using System.Collections.Concurrent;
+using YoutubeExplode.Common;
 
 public class RoomHub : Hub
 {
-    private static bool initialized = false;
     private readonly ILogger logger;
-    private RoomManager roomManager;
+    private readonly RoomManager roomManager;
+    private readonly YoutubeExplode.YoutubeClient yt;
 
-    public RoomHub(ILogger<RoomHub> logger, RoomManager roomManager)
+    public RoomHub(ILogger<RoomHub> logger, RoomManager roomManager, YoutubeExplode.YoutubeClient youtubeClient)
     {
         this.logger = logger;
         this.roomManager = roomManager;
+        this.yt = youtubeClient;
     }
 
     public override async Task OnConnectedAsync()
     {
         Room room = roomManager.GetRoom("Test");
-        string? userID = Context.GetHttpContext()?.Request.Query["access_token"];
-        if (userID is null)
-        {
-            await base.OnConnectedAsync();
-            return;
-        }
+        string userID = Context.UserIdentifier ?? throw new InvalidOperationException("User identifier is unexpectedly null");
 
         await Groups.AddToGroupAsync(Context.ConnectionId, room.Name);
 
@@ -29,11 +26,8 @@ public class RoomHub : Hub
         if (!room.Members.TryGetValue(userID, out member))
             room.Members[userID] = member = new RoomMember(userID);
 
-        room.Members[userID].SetStatus(RoomMember.Status.Connected);
-
         await Clients.Caller.SendAsync("ReceiveRoom", room);
-        await Clients.Caller.SendAsync("ReceiveOwnRoomMember", member);
-
+        await Clients.Caller.SendAsync("ReceiveOwnID", userID);
         await Clients.Group(room.Name).SendAsync("MemberJoined", member);
 
         logger.LogInformation("User connected: {UserID}", userID);
@@ -43,9 +37,7 @@ public class RoomHub : Hub
     public async Task ToggleHostQueueStatus()
     {
         Room room = roomManager.GetRoom("Test");
-        string? userID = Context.GetHttpContext()?.Request.Query["access_token"];
-        if (userID is null)
-            return;
+        string userID = Context.UserIdentifier ?? throw new InvalidOperationException("User identifier is unexpectedly null");
 
         logger.LogInformation("User attempting to join host queue: {UserID}", userID);
 
@@ -57,7 +49,7 @@ public class RoomHub : Hub
         bool isHost = room.Session?.Host.ID == userID;
         if (isHost)
         {
-            await room.NextSession(preventRequeue: true);
+            await room.NextSession(preventHostRequeue: true);
         }
         else if (inHostQueue)
         {
@@ -75,36 +67,24 @@ public class RoomHub : Hub
             }
         }
 
-        await Clients.Group(room.Name).SendAsync("ReceiveHostQueue", room.HostQueue);
+        await Clients.Group(room.Name).SendAsync("ReceiveRoom", room);
     }
 
-    public async Task QueueMedia(Media media)
+    public async Task<IEnumerable<YoutubeExplode.Search.VideoSearchResult>> YTSearch(string query)
     {
-        Room room = roomManager.GetRoom("Test");
-        string? userID = Context.GetHttpContext()?.Request.Query["access_token"];
-        if (userID is null)
-            return;
-
-        logger.LogInformation("User: {UserID} attempting to queue media {MediaLink}", userID, media.Link);
-        if (room.Members.TryGetValue(userID, out RoomMember? member))
-        {
-            member.MediaQueue.Enqueue(media);
-            logger.LogInformation("User: {UserID} queued media {MediaLink}", userID, media.Link);
-            await Clients.Caller.SendAsync("ReceiveOwnRoomMember", member);
-        }
+        string userID = Context.UserIdentifier ?? throw new InvalidOperationException("User identifier is unexpectedly null");
+        logger.LogInformation($"{userID} searching for {query}");
+        return await yt.Search.GetVideosAsync(query).CollectAsync(5);
     }
 
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
         Room room = roomManager.GetRoom("Test");
-        string? userID = Context.GetHttpContext()?.Request.Query["access_token"];
-        if (userID is null)
-            return;
+        string userID = Context.UserIdentifier ?? throw new InvalidOperationException("User identifier is unexpectedly null");
 
         logger.LogInformation("User disconnected: {UserID}", userID);
 
-        room.Members[userID].SetStatus(RoomMember.Status.Disconnected);
-
+        await room.RemoveMember(userID);
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, room.Name);
 
         await base.OnDisconnectedAsync(exception);
@@ -136,14 +116,14 @@ public class Room
         if (HostQueue.FirstOrDefault(h => h.ID == userID) is not null)
         {
             RemoveFromHostQueue(userID);
-            await roomHubContext.Clients.Group(Name).SendAsync("ReceiveHostQueue", HostQueue);
+            await roomHubContext.Clients.Group(Name).SendAsync("ReceiveRoom", this);
         }
 
         Members.Remove(userID, out _);
         await roomHubContext.Clients.Group(Name).SendAsync("MemberLeft", userID);
     }
 
-    public async Task NextSession(bool preventRequeue = false)
+    public async Task NextSession(bool preventHostRequeue = false)
     {
         logger.LogInformation("Advancing to next session...");
         TimerCallback onSessionTimerEnd = async (Object? state) =>
@@ -157,30 +137,44 @@ public class Room
         RoomMember? prevHost = Session?.Host;
         Session = null;
 
-        // find a host with at least one media 
-        RoomMember? nextHost;
-        while (HostQueue.TryDequeue(out nextHost) && nextHost.MediaQueue.Count == 0)
-            nextHost = null;
+        try
+        {
 
-        // set the new host 
-        if (nextHost != null)
-        {
-            Session = new Session(nextHost, onSessionTimerEnd);
-            if (!preventRequeue && prevHost != null)
-                HostQueue.Enqueue(prevHost);
-        }
-        else
-        {
-            // fallback to previous host, if allowed
-            if (!preventRequeue && prevHost?.MediaQueue.Count > 0)
-                Session = new Session(prevHost, onSessionTimerEnd);
-        }
+            // find a host with at least one media 
+            RoomMember? nextHost = null;
+            Media? nextHostMedia = null;
+            while (HostQueue.TryDequeue(out RoomMember? potentialHost))
+            {
+                Media potentialMedia = await roomHubContext.Clients.Client(potentialHost.ID).InvokeAsync<Media>("DequeueMediaQueue", CancellationToken.None);
+                if (potentialMedia != null)
+                {
+                    nextHost = potentialHost;
+                    nextHostMedia = potentialMedia;
+                    break;
+                }
+            }
 
-        await roomHubContext.Clients.Group(Name).SendAsync("ReceiveRoom", this);
-        if (Session != null)
+            // set the new host 
+            if (nextHost != null && nextHostMedia != null)
+            {
+                Session = new Session(nextHost, nextHostMedia, onSessionTimerEnd);
+                if (!preventHostRequeue && prevHost != null)
+                    HostQueue.Enqueue(prevHost);
+            }
+            else if (prevHost != null && !preventHostRequeue)
+            {
+                // fallback to previous host, if they have another media
+                Media? prevHostMedia = await roomHubContext.Clients.Client(prevHost.ID).InvokeAsync<Media?>("DequeueMediaQueue", CancellationToken.None);
+                if (prevHostMedia != null)
+                    Session = new Session(prevHost, prevHostMedia, onSessionTimerEnd);
+            }
+
+            await roomHubContext.Clients.Group(Name).SendAsync("ReceiveRoom", this);
+            logger.LogInformation("Advanced to next session");
+        }
+        catch (Exception ex)
         {
-            logger.LogInformation("Notifying new host: {HostID} of changes", Session.Host.ID);
-            await roomHubContext.Clients.Users(Session.Host.ID).SendAsync("ReceiveOwnRoomMember", Session.Host);
+            logger.LogError(ex, "Error occurred when advancing to next session");
         }
     }
 
@@ -202,29 +196,10 @@ public class Room
 
 public class RoomMember
 {
-    public enum Status
-    {
-        Connected,
-        Disconnected
-    }
-
-    public Status CurrentStatus { get; private set; }
-    public DateTime? DisconnectionDate { get; private set; }
-
-    public Queue<Media> MediaQueue { get; set; } = new();
     public string ID { get; private set; }
-
-    public void SetStatus(Status newStatus)
-    {
-        CurrentStatus = newStatus;
-        DisconnectionDate = newStatus is Status.Disconnected ?
-            DateTime.UtcNow :
-            null;
-    }
 
     public RoomMember(string id)
     {
-        CurrentStatus = Status.Disconnected;
         ID = id;
     }
 
@@ -241,38 +216,36 @@ public class Session
     public int Likes { get; set; } = 0;
     public int Dislikes { get; set; } = 0;
 
-    public Session(RoomMember host, TimerCallback onSessionEnd)
+    public Session(RoomMember host, Media media, TimerCallback onSessionEnd)
     {
-        if (host.MediaQueue.Count == 0)
-            throw new InvalidOperationException("Host must have at least one media in the queue.");
-
-        Media = host.MediaQueue.Dequeue();
+        Media = media;
         Timer = new Timer(onSessionEnd, null, Media.Duration, Timeout.InfiniteTimeSpan);
         Host = host;
     }
 
     public override string ToString()
     {
-        return Media.Link.ToString();
+        return Media.URL.ToString();
     }
 }
 
+// TODO: just use video result class?
 public class Media
 {
-    public Uri Link { get; set; }
+    public Uri URL { get; set; }
     public TimeSpan Duration { get; private set; }
 
-    public Media(Uri link, TimeSpan duration)
+    public Media(Uri url, TimeSpan duration)
     {
-        Link = link;
+        this.URL = url;
         Duration = duration;
     }
 }
 
 public class NameUserIdProvider : IUserIdProvider
 {
-    public string? GetUserId(HubConnectionContext connection)
+    public string GetUserId(HubConnectionContext connection)
     {
-        return connection.GetHttpContext()?.Request.Query["access_token"];
+        return connection.ConnectionId;
     }
 }

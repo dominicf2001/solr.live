@@ -5,7 +5,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<IUserIdProvider, NameUserIdProvider>();
 builder.Services.AddSingleton<RoomManager>();
-builder.Services.AddHostedService<RoomManagerBackground>();
+builder.Services.AddSingleton<YoutubeExplode.YoutubeClient>();
 
 var app = builder.Build();
 

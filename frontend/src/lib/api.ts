@@ -7,7 +7,6 @@ export interface Room {
 }
 
 export interface RoomMember {
-  mediaQueue: Array<Media>;
   id: string;
 }
 
@@ -20,6 +19,26 @@ export interface Session {
 }
 
 export interface Media {
-  link: string;
-  duration: string;
+  id: string
+  url: string
+  title: string
+  author: Author
+  duration: string
+  thumbnails: Thumbnail[]
+}
+
+export interface Author {
+  channelId: string
+  channelUrl: string
+  channelTitle: string
+  title: string
+}
+
+export interface Thumbnail {
+  url: string
+  resolution: {
+    width: number
+    height: number
+    area: number
+  }
 }

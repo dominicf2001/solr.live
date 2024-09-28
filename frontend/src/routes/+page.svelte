@@ -1,5 +1,6 @@
 <script lang="ts">
     import type { Media, Room, RoomMember } from "$lib/api";
+    import { localStore } from "$lib/localStore.svelte";
     import type { HubConnection } from "@microsoft/signalr";
     import {
         HttpTransportType,
@@ -9,55 +10,48 @@
     import "vidstack/bundle";
     import type { MediaPlayerElement } from "vidstack/elements";
 
-    function generateRandomID() {
-        return Math.random().toString(36).substring(2, 9);
-    }
-
-    function isInHostQueue(): boolean {
-        return (
-            room?.hostQueue?.some((h) => h.id === ownRoomMember?.id) ||
-            room?.session?.host.id === ownRoomMember?.id
-        );
-    }
-
-    function queueMedia(event: Event) {
-        event.preventDefault();
-        const formElem = event.target as HTMLFormElement;
-        const formData = new FormData(formElem);
-
-        const songURL = formData.get("songURL");
-        const duration = formData.get("duration");
-        console.log("Queuing media", songURL, duration);
-        if (songURL && duration) {
-            connection.invoke("QueueMedia", {
-                link: songURL,
-                duration: duration,
-            } as Media);
-            formElem.reset();
-        }
-    }
-
     let connection: HubConnection;
-    let accessToken: string | null;
+    let userId: string = $state("");
 
     let room: Room | undefined = $state(undefined);
     let mediaPlayer: MediaPlayerElement | undefined = $state(undefined);
+    let mediaQueue = localStore<Media[]>("mediaQueue", []);
 
-    let ownRoomMember: RoomMember | undefined = $state(undefined);
+    const isInHostQueue: boolean = $derived.by(
+        () => !!room?.hostQueue?.some((h) => h.id === userId),
+    );
+
+    const isHost: boolean = $derived.by(() => {
+        return room?.session?.host?.id === userId;
+    });
+
+    const search = $state({
+        isLoading: false,
+        results: [] as Media[],
+        input: "",
+        clear: function () {
+            this.input = "";
+            this.results = [];
+        },
+        run: async function () {
+            this.results = [];
+            if (!this.input) return;
+
+            this.isLoading = true;
+            this.results = await connection.invoke(
+                "YTSearch",
+                this.input.trim(),
+            );
+            this.isLoading = false;
+        },
+    });
 
     $effect(() => {
-        accessToken = localStorage.getItem("accessToken");
-        if (!accessToken) {
-            accessToken = generateRandomID();
-            localStorage.setItem("accessToken", accessToken);
-        }
-
         // WEBSOCKET CONNECTION
         connection = new HubConnectionBuilder()
-            .withUrl("http://192.168.4.29:5066/roomHub", {
+            .withUrl(`${import.meta.env.VITE_API_URL}/roomHub`, {
                 skipNegotiation: true,
                 transport: HttpTransportType.WebSockets,
-                accessTokenFactory: () => accessToken as string,
             })
             .withAutomaticReconnect()
             .build();
@@ -67,23 +61,19 @@
 
             room = receivedRoom;
 
-            console.log(mediaPlayer);
             if (!mediaPlayer) return;
-            mediaPlayer.src = room?.session?.media?.link ?? "";
+            mediaPlayer.src = room?.session?.media?.url ?? "";
         });
 
-        connection.on("ReceiveOwnRoomMember", (receivedMember: RoomMember) => {
-            console.log("Received own room member", receivedMember);
-            ownRoomMember = receivedMember;
+        connection.on("ReceiveOwnID", (receivedId) => {
+            console.log("Received own ID", receivedId);
+            userId = receivedId;
         });
 
-        connection.on(
-            "ReceiveHostQueue",
-            (receivedQueue: Array<RoomMember>) => {
-                console.log("Received host queue", receivedQueue);
-                if (room) room.hostQueue = receivedQueue;
-            },
-        );
+        connection.on("DequeueMediaQueue", () => {
+            console.log("Dequeuing media queue");
+            return mediaQueue.value.shift() ?? null;
+        });
 
         connection.on("MemberJoined", (receivedMember: RoomMember) => {
             console.log("Member joined", receivedMember);
@@ -108,9 +98,18 @@
             }
         });
 
+        window.onbeforeunload = () => {
+            // warn user when they exit
+            // TODO: uncomment
+            //if (isHost() || isInHostQueue()) {
+            //    return true;
+            //}
+        };
+
         return () => {
             unsubPlayer?.();
             connection.stop();
+            window.onbeforeunload = null;
         };
     });
 </script>
@@ -146,9 +145,17 @@
             <h2>Host Queue</h2>
             <button
                 onclick={() => connection.invoke("ToggleHostQueueStatus")}
-                class="queue-button {isInHostQueue() ? 'leave' : 'join'}"
+                class="queue-button"
+                class:join={!isInHostQueue && !isHost}
+                class:leave={isInHostQueue || isHost}
             >
-                {isInHostQueue() ? "Leave Queue" : "Join Queue"}
+                {#if isInHostQueue}
+                    Leave Queue
+                {:else if isHost}
+                    Stop DJing
+                {:else}
+                    Join Queue
+                {/if}
             </button>
         </div>
         <ul>
@@ -161,24 +168,60 @@
 
 <section class="room-details">
     <div class="item-list">
-        <form onsubmit={queueMedia} id="songForm">
-            <input type="url" placeholder="URL" name="songURL" required />
+        <form onsubmit={() => search.run()}>
             <input
-                type="text"
-                placeholder="Duration (e.g., 00:04:51)"
-                name="duration"
-                required
+                bind:value={search.input}
+                placeholder="Song name"
+                name="mediaName"
             />
-            <button type="submit">Queue Song</button>
+            <button id="searchButton" disabled={search.isLoading} type="submit"
+                >{search.isLoading ? "Loading..." : "Search"}</button
+            >
+            <div class="media-container">
+                {#each search.results as media (media.id)}
+                    <button
+                        type="button"
+                        class="search-result media-item"
+                        onclick={() => {
+                            mediaQueue.value.push(media);
+                            search.clear();
+                        }}
+                    >
+                        <img
+                            src={media.thumbnails[0].url}
+                            alt="Thumbnail"
+                            class="thumbnail"
+                        />
+                        <div class="song-info">
+                            <span class="title">{media.title}</span>
+                            {#if media.duration}
+                                <span class="duration">({media.duration})</span>
+                            {/if}
+                        </div>
+                    </button>
+                {/each}
+            </div>
         </form>
     </div>
     <div class="item-list">
-        <h2>Your Song Queue</h2>
-        <ul>
-            {#each ownRoomMember?.mediaQueue ?? [] as song, index (index)}
-                <li>{song.link}</li>
+        <h2 style="margin-bottom: 10px">Your Song Queue</h2>
+        <div class="media-container">
+            {#each mediaQueue.value as media (media.id)}
+                <button class="media-item" type="button">
+                    <img
+                        src={media.thumbnails[0].url}
+                        alt="Thumbnail"
+                        class="thumbnail"
+                    />
+                    <div class="song-info">
+                        <span class="title">{media.title}</span>
+                        {#if media.duration}
+                            <span class="duration">({media.duration})</span>
+                        {/if}
+                    </div>
+                </button>
             {/each}
-        </ul>
+        </div>
     </div>
 </section>
 
@@ -255,7 +298,7 @@
 
     /* Media Player Section */
     .media-player-container {
-        max-width: 800px;
+        max-width: 1200px;
         margin: 1rem auto;
         padding: 0 1rem;
     }
@@ -272,7 +315,7 @@
         flex-wrap: wrap;
         justify-content: space-between;
         margin: 1rem auto;
-        max-width: 800px;
+        max-width: 1200px;
     }
 
     .item-list {
@@ -292,7 +335,52 @@
         border-radius: 4px;
     }
 
-    /* Form Styling */
+    .media-container {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .media-item {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        background-color: white;
+        transition: background-color 0.3s ease;
+        text-align: left;
+    }
+
+    .search-result:hover {
+        cursor: pointer;
+        background-color: #f0f0f0;
+    }
+
+    .thumbnail {
+        width: 200px;
+        height: auto;
+        object-fit: cover;
+        margin-right: 10px;
+    }
+
+    .song-info {
+        display: flex;
+        flex-direction: column;
+        flex-grow: 1;
+    }
+
+    .title {
+        font-weight: bold;
+        margin-bottom: 5px;
+        color: var(--primary-color);
+    }
+
+    .duration {
+        font-size: 0.8em;
+        color: #666;
+    } /* Form Styling */
     form {
         display: flex;
         flex-direction: column;
@@ -305,15 +393,20 @@
         font-size: 1rem;
     }
 
-    form button {
+    #searchButton {
         background-color: var(--primary-color);
         color: #fff;
         border: none;
         cursor: pointer;
     }
 
-    form button:hover {
+    #searchButton:hover:not(:disabled) {
         background-color: var(--secondary-color);
+    }
+
+    #searchButton:disabled {
+        opacity: 50%;
+        cursor: default;
     }
 
     /* Responsive Design */
