@@ -74,7 +74,38 @@ public class RoomHub : Hub
     {
         string userID = Context.UserIdentifier ?? throw new InvalidOperationException("User identifier is unexpectedly null");
         logger.LogInformation($"{userID} searching for {query}");
-        return await yt.Search.GetVideosAsync(query).CollectAsync(5);
+
+        List<string> musicKeywords = new List<string>
+            {
+                "music", "song", "track", "album", "lyrics", "melody", "beat", "rhythm", "instrumental",
+                "audio", "cover", "remix", "DJ", "karaoke", "official", "studio",
+                "single", "duet", "performance", "concert", "setlist", "mixtape", "EP", "LP", "record",
+                "pop", "rock", "hip hop", "rap", "jazz", "classical", "blues", "reggae", "soul", "R&B",
+                "country", "indie", "EDM", "metal", "folk", "punk", "dubstep", "trap", "house music",
+                "electronic", "acoustic", "remastered", "unplugged", "live performance", "festival",
+                "orchestra", "symphony", "session", "guitar", "piano", "drums", "bass", "synth", "violin",
+                "cello", "trumpet", "saxophone", "flute", "background music", "relaxing", "chill", "party",
+                "workout music", "study music", "sleep music", "motivational music", "gaming music",
+                "dance music", "TikTok music", "viral", "playlist", "trending", "mashup", "bootleg",
+                "fan edit", "sped up", "slowed", "reverb", "canción", "música", "chanson", "musik",
+                "歌曲", "音楽", "Spotify", "Apple Music", "SoundCloud", "Pandora", "Deezer", "Bandcamp"
+            };
+
+        var videos = await yt.Search.GetVideosAsync(query).CollectAsync(30);
+
+        var filteredVideos = videos
+            .Where(v => v.Duration < TimeSpan.FromMinutes(8))
+            .OrderByDescending(v =>
+            {
+                int score = 0;
+                foreach (string keyword in musicKeywords)
+                    if (v.Title.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                        ++score;
+                return score;
+            })
+            .Take(10);
+
+        return filteredVideos;
     }
 
     public override async Task OnDisconnectedAsync(Exception? exception)
