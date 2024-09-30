@@ -1,13 +1,14 @@
 <script lang="ts">
     import type { ChatMessage, Media, Room, RoomMember } from "$lib/api";
     import { localStore } from "$lib/localStore.svelte";
-    import { genSessionKey } from "$lib/util";
+    import { genSessionKey, scrollToBottom } from "$lib/util";
     import type { HubConnection } from "@microsoft/signalr";
     import {
         HttpTransportType,
         HubConnectionBuilder,
     } from "@microsoft/signalr";
     import dayjs from "dayjs";
+    import { onMount } from "svelte";
     import "vidstack/bundle";
     import type { MediaPlayerElement } from "vidstack/elements";
 
@@ -61,10 +62,16 @@
     });
 
     let chatMessage = $state({
-        content: "",
+        shouldScroll: false,
+        container: null as HTMLElement | null,
+        input: null as HTMLInputElement | null,
         send: () => {
-            connection.invoke("SendChatMessage", chatMessage.content);
-            chatMessage.content = "";
+            if (!chatMessage.container || !chatMessage.input?.value) return;
+            connection.invoke("SendChatMessage", chatMessage.input.value);
+
+            chatMessage.input.value = "";
+            chatMessage.input.focus();
+            chatMessage.input.select();
         },
     });
 
@@ -76,7 +83,7 @@
         }
     }
 
-    $effect(() => {
+    onMount(() => {
         // WEBSOCKET CONNECTION
         connection = new HubConnectionBuilder()
             .withUrl(`${import.meta.env.VITE_API_URL}/roomHub`, {
@@ -135,6 +142,8 @@
         connection.on(
             "ReceiveChatMessage",
             (receivedChatMessage: ChatMessage) => {
+                if (receivedChatMessage.authorID == ownRoomMember?.id)
+                    chatMessage.shouldScroll = true;
                 room?.chat.messages.push(receivedChatMessage);
             },
         );
@@ -147,24 +156,38 @@
         connection.start();
 
         // MEDIA PLAYER
-        const unsubPlayer = mediaPlayer?.subscribe(({ paused, canPlay }) => {
-            if (mediaPlayer && canPlay) {
-                if (paused) mediaPlayer.play();
+        const unsubPlayer = mediaPlayer?.subscribe(
+            ({ paused, canPlay, autoPlay }) => {
+                if (!mediaPlayer) return;
 
-                mediaPlayer.currentTime = calculateCurrentTime();
-            }
-        });
+                if (canPlay) {
+                    if (paused || autoPlay) mediaPlayer.play();
 
-        window.onbeforeunload = () => {
-            // warn user when they exit
-            return isHost || isInHostQueue;
-        };
+                    mediaPlayer.currentTime = calculateCurrentTime();
+                }
+            },
+        );
+
+        //window.onbeforeunload = () => {
+        //    // warn user when they exit
+        //    return isHost || isInHostQueue;
+        //};
 
         return () => {
             unsubPlayer?.();
             connection.stop();
             window.onbeforeunload = null;
         };
+    });
+
+    $effect(() => {
+        if (
+            chatMessage.shouldScroll &&
+            (room?.chat?.messages?.length ?? 0) > 0
+        ) {
+            scrollToBottom(chatMessage.container);
+            chatMessage.shouldScroll = false;
+        }
     });
 </script>
 
@@ -228,7 +251,12 @@
 
         <section class="room-details">
             <div class="item-list">
-                <form onsubmit={() => search.run()}>
+                <form
+                    onsubmit={(e) => {
+                        e.preventDefault();
+                        search.run();
+                    }}
+                >
                     <input
                         bind:value={search.input}
                         placeholder="Song name"
@@ -302,7 +330,7 @@
     </section>
 
     <section id="chatContainer">
-        <ol>
+        <ol bind:this={chatMessage.container}>
             {#each room?.chat.messages ?? [] as chatMessage (chatMessage.date)}
                 <li>
                     <h4>
@@ -319,9 +347,14 @@
                 </li>
             {/each}
         </ol>
-        <form onsubmit={() => chatMessage.send()}>
+        <form
+            onsubmit={(e) => {
+                e.preventDefault();
+                chatMessage.send();
+            }}
+        >
             <input
-                bind:value={chatMessage.content}
+                bind:this={chatMessage.input}
                 name="chatMessage"
                 placeholder="Message"
             />
@@ -342,6 +375,7 @@
 
     main {
         display: flex;
+        gap: 2rem;
     }
 
     #mediaContainer {

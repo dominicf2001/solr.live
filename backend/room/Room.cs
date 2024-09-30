@@ -162,6 +162,7 @@ public class Room
     public ConcurrentDictionary<string, RoomMember> Members { get; set; } = new();
 
     public string Name { get; set; } = "";
+    public Guid ID { get; } = new();
 
     public void RemoveFromHostQueue(string userID)
     {

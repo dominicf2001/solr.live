@@ -9,3 +9,16 @@ export function genSessionKey() {
 
 	return sessionKey;
 }
+
+
+export function scrollToBottom(node: HTMLElement | null) {
+	if (!node) return;
+
+	const scroll = () => node.scroll({
+		top: node.scrollHeight,
+		behavior: 'smooth',
+	});
+	scroll();
+
+	return { update: scroll }
+};
