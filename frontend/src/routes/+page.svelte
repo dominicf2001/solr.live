@@ -1,6 +1,7 @@
 <script lang="ts">
     import type { ChatMessage, Media, Room, RoomMember } from "$lib/api";
     import { localStore } from "$lib/localStore.svelte";
+    import { genSessionKey } from "$lib/util";
     import type { HubConnection } from "@microsoft/signalr";
     import {
         HttpTransportType,
@@ -10,10 +11,23 @@
     import "vidstack/bundle";
     import type { MediaPlayerElement } from "vidstack/elements";
 
+    // CONNECTION
     let connection: HubConnection;
-    let userId: string = $state("");
+    let preferredUsername = localStore<string>("preferredUsername", "");
 
+    // ROOM
     let room: Room | undefined = $state(undefined);
+    let ownRoomMember: RoomMember | undefined = $state(undefined);
+
+    const isInHostQueue: boolean = $derived.by(
+        () => !!room?.hostQueue?.some((h) => h.id === ownRoomMember?.id),
+    );
+
+    const isHost: boolean = $derived.by(
+        () => room?.session?.host?.id === ownRoomMember?.id,
+    );
+
+    // MEDIA
     let mediaPlayer: MediaPlayerElement | undefined = $state(undefined);
     let mediaQueue = {
         value: localStore<Media[]>("mediaQueue", []).value,
@@ -24,14 +38,6 @@
             mediaQueue.value.splice(index, 1);
         },
     };
-
-    const isInHostQueue: boolean = $derived.by(
-        () => !!room?.hostQueue?.some((h) => h.id === userId),
-    );
-
-    const isHost: boolean = $derived.by(() => {
-        return room?.session?.host?.id === userId;
-    });
 
     const search = $state({
         isLoading: false,
@@ -79,26 +85,46 @@
             })
             .withAutomaticReconnect()
             .build();
+
         connection.on("ReceiveRoom", (receivedRoom: Room) => {
             console.log("Received room", receivedRoom);
 
             room = receivedRoom;
 
             if (!mediaPlayer) return;
-            console.log("Setting Src", room?.session?.media?.url ?? "");
             mediaPlayer.src = room?.session?.media?.url ?? "";
         });
 
-        connection.on("ReceiveOwnID", (receivedId) => {
-            console.log("Received own ID", receivedId);
-            userId = receivedId;
-        });
+        connection.on(
+            "ReceiveOwnRoomMember",
+            async (receivedMember: RoomMember) => {
+                console.log("Received own room member", receivedMember);
+                ownRoomMember = receivedMember;
+
+                if (
+                    preferredUsername.value !== "" &&
+                    preferredUsername.value !== ownRoomMember.username
+                ) {
+                    try {
+                        const usernameChanged = await connection.invoke(
+                            "ChangeUsername",
+                            preferredUsername.value,
+                        );
+                        if (usernameChanged) {
+                            ownRoomMember.username = preferredUsername.value;
+                        }
+                    } catch (error) {
+                        console.error("Error changing username:", error);
+                    }
+                } else {
+                    preferredUsername.value = ownRoomMember.username;
+                }
+            },
+        );
 
         connection.on("DequeueMediaQueue", () => {
             console.log("Dequeuing media queue");
-            const temp = mediaQueue.dequeue();
-            console.log(temp);
-            return temp;
+            return mediaQueue.dequeue();
         });
 
         connection.on("MemberJoined", (receivedMember: RoomMember) => {
@@ -122,9 +148,7 @@
 
         // MEDIA PLAYER
         const unsubPlayer = mediaPlayer?.subscribe(({ paused, canPlay }) => {
-            console.log("IN CALLBACK", mediaPlayer, canPlay);
             if (mediaPlayer && canPlay) {
-                console.log("PLAYING");
                 if (paused) mediaPlayer.play();
 
                 mediaPlayer.currentTime = calculateCurrentTime();
@@ -133,10 +157,7 @@
 
         window.onbeforeunload = () => {
             // warn user when they exit
-            // TODO: uncomment
-            //if (isHost() || isInHostQueue()) {
-            //    return true;
-            //}
+            return isHost || isInHostQueue;
         };
 
         return () => {
@@ -149,7 +170,7 @@
 
 <header class="room-info">
     <h1 id="roomName">{room?.name ?? "Empty Room"}</h1>
-    <p class="room-host">Host: {room?.session?.host?.id ?? "None"}</p>
+    <p class="room-host">Host: {room?.session?.host?.username ?? "None"}</p>
 </header>
 
 <main>
@@ -165,8 +186,13 @@
             <div class="item-list">
                 <h2>Members</h2>
                 <ul>
-                    {#each Object.values(room?.members ?? {}) as member (member.id)}
-                        <li>{member.id}</li>
+                    {#each Object.values(room?.members ?? {}).sort( (a, b) => a.username.localeCompare(b.username), ) as member (member.id)}
+                        <li>
+                            {member.username}
+                            {member.username === ownRoomMember?.username
+                                ? "(You)"
+                                : ""}
+                        </li>
                     {/each}
                 </ul>
             </div>
@@ -194,7 +220,7 @@
                 </div>
                 <ul>
                     {#each room?.hostQueue ?? [] as m (m.id)}
-                        <li>{m.id}</li>
+                        <li>{m.username}</li>
                     {/each}
                 </ul>
             </div>
@@ -280,7 +306,9 @@
             {#each room?.chat.messages ?? [] as chatMessage (chatMessage.date)}
                 <li>
                     <h4>
-                        {chatMessage.authorID}
+                        {room?.members[chatMessage.authorID]?.username ??
+                            chatMessage.usernameAtDate ??
+                            "Unknown user"}
                         <span
                             >{chatMessage.date
                                 .split(".")[0]

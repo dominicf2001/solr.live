@@ -25,11 +25,18 @@ public class RoomHub : Hub
 
         RoomMember? member;
         if (!room.Members.TryGetValue(userID, out member))
-            room.Members[userID] = member = new RoomMember(userID);
+        {
+            string username = RoomUtils.GenRandomUsername();
+            int duplicates = room.Members.Values.Where(m => m.Username.StartsWith(username)).Count();
+            if (duplicates > 0)
+                username += duplicates;
 
+            room.Members[userID] = member = new RoomMember(userID, username);
+        }
+
+        await Clients.Caller.SendAsync("ReceiveOwnRoomMember", member);
         Task[] tasks = [
             Clients.Caller.SendAsync("ReceiveRoom", room),
-            Clients.Caller.SendAsync("ReceiveOwnID", userID),
             Clients.Group(room.Name).SendAsync("MemberJoined", member),
         ];
 
@@ -109,6 +116,26 @@ public class RoomHub : Hub
         return filteredVideos;
     }
 
+    public async Task<Boolean> ChangeUsername(string newUsername)
+    {
+        Room room = roomManager.GetRoom("Test");
+        string userID = Context.UserIdentifier ?? throw new InvalidOperationException("User identifier is unexpectedly null");
+
+        logger.LogInformation($"User: {userID} attempting to change their username to {newUsername}");
+        if (room.Members.Values.Any(m => m.Username == newUsername))
+            return false;
+
+        if (room.Members.TryGetValue(userID, out RoomMember? member))
+        {
+            member.Username = newUsername;
+            logger.LogInformation($"User: {userID} change their username to {newUsername}");
+            await Clients.Group(room.Name).SendAsync("ReceiveRoom", room);
+            return true;
+        }
+
+        return false;
+    }
+
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
         Room room = roomManager.GetRoom("Test");
@@ -130,7 +157,7 @@ public class Room
 
     public ConcurrentQueue<RoomMember> HostQueue { get; private set; } = new();
     public Session? Session { get; private set; }
-    public Chat Chat { get; private set; } = new();
+    public Chat Chat { get; private set; }
 
     public ConcurrentDictionary<string, RoomMember> Members { get; set; } = new();
 
@@ -216,6 +243,7 @@ public class Room
         this.roomHubContext = roomHubContext;
         this.logger = logger;
         Name = name;
+        Chat = new Chat(this);
     }
 
     public override string ToString()
@@ -230,13 +258,15 @@ public class Room
 public record RoomMember
 {
     public string ID { get; }
+    public string Username { get; set; }
 
-    public RoomMember(string id)
+    public RoomMember(string id, string username)
     {
         ID = id;
+        Username = username;
     }
 
-    public override string ToString() => ID;
+    public override string ToString() => Username;
 }
 
 public class Session
@@ -290,12 +320,19 @@ public class Media
 public class Chat
 {
     public List<ChatMessage> Messages { get; private set; } = new();
+    private Room room;
 
-    public ChatMessage Send(string AuthorID, string content)
+    public ChatMessage Send(string authorID, string content)
     {
-        ChatMessage newChatMessage = new(AuthorID, content, DateTime.UtcNow);
+        string username = room.Members[authorID]?.Username ?? "";
+        ChatMessage newChatMessage = new(authorID, username, content, DateTime.UtcNow);
         Messages.Add(newChatMessage);
         return newChatMessage;
+    }
+
+    public Chat(Room room)
+    {
+        this.room = room;
     }
 }
 
@@ -303,13 +340,15 @@ public class ChatMessage
 {
     public string Content { get; }
     public string AuthorID { get; }
+    public string UsernameAtDate { get; }
     public DateTime Date { get; }
 
-    public ChatMessage(string authorID, string content, DateTime date)
+    public ChatMessage(string authorID, string username, string content, DateTime date)
     {
         Date = date;
         AuthorID = authorID;
         Content = content;
+        UsernameAtDate = username;
     }
 }
 

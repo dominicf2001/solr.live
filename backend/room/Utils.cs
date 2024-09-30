@@ -18,4 +18,25 @@ public static class RoomUtils
                 "歌曲", "音楽", "Spotify", "Apple Music", "SoundCloud", "Pandora", "Deezer", "Bandcamp"
             };
     }
+
+    public static string GenRandomUsername()
+    {
+        Random Random = new Random();
+
+        List<string> Adjectives = new List<string>
+        {
+            "Brave", "Clever", "Swift", "Mighty", "Wise", "Fierce", "Gentle", "Noble", "Bold", "Curious",
+            "Quiet", "Loyal", "Daring", "Fearless", "Friendly", "Witty", "Eager", "Kind", "Charming", "Jolly"
+        };
+
+        List<string> Nouns = new List<string>
+        {
+            "Lion", "Tiger", "Eagle", "Bear", "Fox", "Wolf", "Dragon", "Hawk", "Panther", "Falcon",
+            "Raven", "Phoenix", "Shark", "Dolphin", "Otter", "Panda", "Gorilla", "Leopard", "Whale", "Unicorn"
+        };
+        string adjective = Adjectives[Random.Next(Adjectives.Count)];
+        string noun = Nouns[Random.Next(Nouns.Count)];
+        return $"{adjective} {noun}";
+
+    }
 }
