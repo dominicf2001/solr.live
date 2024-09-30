@@ -4,6 +4,7 @@ export interface Room {
   members: Record<string, RoomMember>;
   name: string;
   owner: string;
+  chat: Chat;
 }
 
 export interface RoomMember {
@@ -24,7 +25,7 @@ export interface Media {
   title: string
   author: Author
   duration: string
-  thumbnails: Thumbnail[]
+  thumbnail?: Thumbnail
 }
 
 export interface Author {
@@ -41,4 +42,14 @@ export interface Thumbnail {
     height: number
     area: number
   }
+}
+
+export interface Chat {
+  messages: ChatMessage[]
+}
+
+export interface ChatMessage {
+  content: string
+  authorID: string
+  date: string
 }

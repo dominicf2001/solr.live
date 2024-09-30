@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.SignalR;
 using System.Collections.Concurrent;
 using YoutubeExplode.Common;
+using YoutubeExplode.Search;
 
 public class RoomHub : Hub
 {
@@ -26,12 +27,26 @@ public class RoomHub : Hub
         if (!room.Members.TryGetValue(userID, out member))
             room.Members[userID] = member = new RoomMember(userID);
 
-        await Clients.Caller.SendAsync("ReceiveRoom", room);
-        await Clients.Caller.SendAsync("ReceiveOwnID", userID);
-        await Clients.Group(room.Name).SendAsync("MemberJoined", member);
+        Task[] tasks = [
+            Clients.Caller.SendAsync("ReceiveRoom", room),
+            Clients.Caller.SendAsync("ReceiveOwnID", userID),
+            Clients.Group(room.Name).SendAsync("MemberJoined", member),
+        ];
+
+        await Task.WhenAll(tasks);
 
         logger.LogInformation("User connected: {UserID}", userID);
         await base.OnConnectedAsync();
+    }
+
+    public async Task SendChatMessage(string content)
+    {
+        Room room = roomManager.GetRoom("Test");
+        string userID = Context.UserIdentifier ?? throw new InvalidOperationException("User identifier is unexpectedly null");
+        logger.LogInformation($"Sending chat message: {content} from {userID}");
+
+        ChatMessage chatMessage = room.Chat.Send(userID, content);
+        await Clients.Group(room.Name).SendAsync("ReceiveChatMessage", chatMessage);
     }
 
     public async Task ToggleHostQueueStatus()
@@ -70,26 +85,11 @@ public class RoomHub : Hub
         await Clients.Group(room.Name).SendAsync("ReceiveRoom", room);
     }
 
-    public async Task<IEnumerable<YoutubeExplode.Search.VideoSearchResult>> YTSearch(string query)
+    public async Task<IEnumerable<Media>> YTSearch(string query)
     {
         string userID = Context.UserIdentifier ?? throw new InvalidOperationException("User identifier is unexpectedly null");
         logger.LogInformation($"{userID} searching for {query}");
-
-        List<string> musicKeywords = new List<string>
-            {
-                "music", "song", "track", "album", "lyrics", "melody", "beat", "rhythm", "instrumental",
-                "audio", "cover", "remix", "DJ", "karaoke", "official", "studio",
-                "single", "duet", "performance", "concert", "setlist", "mixtape", "EP", "LP", "record",
-                "pop", "rock", "hip hop", "rap", "jazz", "classical", "blues", "reggae", "soul", "R&B",
-                "country", "indie", "EDM", "metal", "folk", "punk", "dubstep", "trap", "house music",
-                "electronic", "acoustic", "remastered", "unplugged", "live performance", "festival",
-                "orchestra", "symphony", "session", "guitar", "piano", "drums", "bass", "synth", "violin",
-                "cello", "trumpet", "saxophone", "flute", "background music", "relaxing", "chill", "party",
-                "workout music", "study music", "sleep music", "motivational music", "gaming music",
-                "dance music", "TikTok music", "viral", "playlist", "trending", "mashup", "bootleg",
-                "fan edit", "sped up", "slowed", "reverb", "canción", "música", "chanson", "musik",
-                "歌曲", "音楽", "Spotify", "Apple Music", "SoundCloud", "Pandora", "Deezer", "Bandcamp"
-            };
+        List<string> musicKeywords = RoomUtils.GetMusicKeywords();
 
         var videos = await yt.Search.GetVideosAsync(query).CollectAsync(30);
 
@@ -103,7 +103,8 @@ public class RoomHub : Hub
                         ++score;
                 return score;
             })
-            .Take(10);
+            .Take(10)
+            .Select(v => new Media(v));
 
         return filteredVideos;
     }
@@ -127,8 +128,9 @@ public class Room
     private readonly ILogger logger;
     private readonly IHubContext<RoomHub> roomHubContext;
 
-    public ConcurrentQueue<RoomMember> HostQueue { get; set; } = new();
+    public ConcurrentQueue<RoomMember> HostQueue { get; private set; } = new();
     public Session? Session { get; private set; }
+    public Chat Chat { get; private set; } = new();
 
     public ConcurrentDictionary<string, RoomMember> Members { get; set; } = new();
 
@@ -170,7 +172,6 @@ public class Room
 
         try
         {
-
             // find a host with at least one media 
             RoomMember? nextHost = null;
             Media? nextHostMedia = null;
@@ -179,6 +180,7 @@ public class Room
                 Media potentialMedia = await roomHubContext.Clients.Client(potentialHost.ID).InvokeAsync<Media>("DequeueMediaQueue", CancellationToken.None);
                 if (potentialMedia != null)
                 {
+                    Console.WriteLine($"URL: {potentialMedia.Url}");
                     nextHost = potentialHost;
                     nextHostMedia = potentialMedia;
                     break;
@@ -225,9 +227,9 @@ public class Room
     }
 }
 
-public class RoomMember
+public record RoomMember
 {
-    public string ID { get; private set; }
+    public string ID { get; }
 
     public RoomMember(string id)
     {
@@ -250,26 +252,64 @@ public class Session
     public Session(RoomMember host, Media media, TimerCallback onSessionEnd)
     {
         Media = media;
-        Timer = new Timer(onSessionEnd, null, Media.Duration, Timeout.InfiniteTimeSpan);
+        Timer = new Timer(onSessionEnd, null, media.Duration.GetValueOrDefault(), Timeout.InfiniteTimeSpan);
         Host = host;
-    }
-
-    public override string ToString()
-    {
-        return Media.URL.ToString();
     }
 }
 
-// TODO: just use video result class?
 public class Media
 {
-    public Uri URL { get; set; }
-    public TimeSpan Duration { get; private set; }
+    public string ID { get; set; } = default!;
+    public Uri Url { get; set; } = default!;
+    public string Title { get; set; } = "";
+    public string Author { get; set; } = "";
+    public TimeSpan? Duration { get; set; } = TimeSpan.Zero;
+    public Thumbnail? Thumbnail { get; set; }
 
-    public Media(Uri url, TimeSpan duration)
+    public Media()
     {
-        this.URL = url;
-        Duration = duration;
+    }
+
+    public Media(string id, Uri url)
+    {
+        ID = id;
+        Url = url;
+    }
+
+    public Media(VideoSearchResult videoSearchResult)
+    {
+        Url = new Uri(videoSearchResult.Url);
+        Title = videoSearchResult.Title;
+        Author = videoSearchResult.Author.ChannelTitle;
+        Duration = videoSearchResult.Duration;
+        ID = videoSearchResult.Id;
+        Thumbnail = videoSearchResult.Thumbnails[0];
+    }
+}
+
+public class Chat
+{
+    public List<ChatMessage> Messages { get; private set; } = new();
+
+    public ChatMessage Send(string AuthorID, string content)
+    {
+        ChatMessage newChatMessage = new(AuthorID, content, DateTime.UtcNow);
+        Messages.Add(newChatMessage);
+        return newChatMessage;
+    }
+}
+
+public class ChatMessage
+{
+    public string Content { get; }
+    public string AuthorID { get; }
+    public DateTime Date { get; }
+
+    public ChatMessage(string authorID, string content, DateTime date)
+    {
+        Date = date;
+        AuthorID = authorID;
+        Content = content;
     }
 }
 
