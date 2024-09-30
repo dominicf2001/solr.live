@@ -1,7 +1,7 @@
 <script lang="ts">
     import type { ChatMessage, Media, Room, RoomMember } from "$lib/api";
     import { localStore } from "$lib/localStore.svelte";
-    import { genSessionKey, scrollToBottom } from "$lib/util";
+    import { deriveSkipsNeeded, scrollToBottom } from "$lib/util";
     import type { HubConnection } from "@microsoft/signalr";
     import {
         HttpTransportType,
@@ -19,6 +19,7 @@
     // ROOM
     let room: Room | undefined = $state(undefined);
     let ownRoomMember: RoomMember | undefined = $state(undefined);
+    let skipsNeeded = $derived(room ? deriveSkipsNeeded(room) : 0);
 
     const isInHostQueue: boolean = $derived.by(
         () => !!room?.hostQueue?.some((h) => h.id === ownRoomMember?.id),
@@ -203,6 +204,21 @@
                 <media-provider></media-provider>
                 <media-video-layout></media-video-layout>
             </media-player>
+            {#if room?.session}
+                <div style="display: flex; align-items: center;">
+                    <p style="margin: none;" class="room-host">
+                        Skips: {room?.session?.skips.length ?? 0} / {skipsNeeded}
+                    </p>
+                    <button
+                        disabled={room.session.skips.some(
+                            (id) => id === ownRoomMember?.id,
+                        )}
+                        onclick={() => connection.invoke("SendSkip")}
+                        style="height: 50%; margin-left: 1%;"
+                        class="input-button">Skip</button
+                    >
+                </div>
+            {/if}
         </section>
 
         <section class="room-details">

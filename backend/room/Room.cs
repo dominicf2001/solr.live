@@ -56,6 +56,32 @@ public class RoomHub : Hub
         await Clients.Group(room.ID).SendAsync("ReceiveChatMessage", chatMessage);
     }
 
+    public async Task SendSkip()
+    {
+        Room room = roomManager.GetRoom("Test");
+        string userID = Context.UserIdentifier ?? throw new InvalidOperationException("User identifier is unexpectedly null");
+        logger.LogInformation($"Attempt from {userID} to send a skip");
+        if (room?.Session is null) return;
+
+        bool isANewSkip = room.Session.Skips.Add(userID);
+        if (!isANewSkip)
+        {
+            logger.LogInformation($"{userID} already sent a skip");
+            return;
+        }
+        logger.LogInformation($"{userID} sent a skip");
+
+        if (room.Session.CanSkip(room))
+        {
+            logger.LogInformation($"Skipping the session");
+            await room.NextSession();
+        }
+        else
+        {
+            await Clients.Group(room.ID).SendAsync("ReceiveRoom", room);
+        }
+    }
+
     public async Task ToggleHostQueueStatus()
     {
         Room room = roomManager.GetRoom("Test");
@@ -174,11 +200,21 @@ public class Room
         if (Session?.Host.ID == userID)
             await NextSession();
 
+        bool shouldReceiveRoom = false;
         if (HostQueue.FirstOrDefault(h => h.ID == userID) is not null)
         {
             RemoveFromHostQueue(userID);
-            await roomHubContext.Clients.Group(ID).SendAsync("ReceiveRoom", this);
+            shouldReceiveRoom = true;
         }
+
+        if (Session != null && Session.Skips.Contains(userID))
+        {
+            Session?.Skips.Remove(userID);
+            shouldReceiveRoom = true;
+        }
+
+        if (shouldReceiveRoom)
+            await roomHubContext.Clients.Group(ID).SendAsync("ReceiveRoom", this);
 
         Members.Remove(userID, out _);
         await roomHubContext.Clients.Group(ID).SendAsync("MemberLeft", userID);
@@ -279,6 +315,14 @@ public class Session
     public Media Media { get; set; }
     public int Likes { get; set; } = 0;
     public int Dislikes { get; set; } = 0;
+    public HashSet<string> Skips { get; set; } = new();
+
+    public bool CanSkip(Room room)
+    {
+        // TODO: figure out best equation for this. Probably should be a config
+        int skipsNeeded = (int)Math.Ceiling(room.Members.Count / 1.0);
+        return Skips.Count >= skipsNeeded;
+    }
 
     public Session(RoomMember host, Media media, TimerCallback onSessionEnd)
     {

@@ -18,6 +18,7 @@ export interface Session {
   media: Media;
   likes: number;
   dislikes: number;
+  skips: string[];
 }
 
 export interface Media {

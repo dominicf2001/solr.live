@@ -1,3 +1,5 @@
+import type { Room } from "./api";
+
 export function genSessionKey() {
 	const array = new Uint32Array(10);
 	window.crypto.getRandomValues(array);
@@ -22,3 +24,7 @@ export function scrollToBottom(node: HTMLElement | null) {
 
 	return { update: scroll }
 };
+
+export function deriveSkipsNeeded(room: Room) {
+	return Math.ceil(Object.values(room.members).length);
+} 
