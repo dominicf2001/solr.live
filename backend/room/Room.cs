@@ -21,7 +21,7 @@ public class RoomHub : Hub
         Room room = roomManager.GetRoom("Test");
         string userID = Context.UserIdentifier ?? throw new InvalidOperationException("User identifier is unexpectedly null");
 
-        await Groups.AddToGroupAsync(Context.ConnectionId, room.Name);
+        await Groups.AddToGroupAsync(Context.ConnectionId, room.ID);
 
         RoomMember? member;
         if (!room.Members.TryGetValue(userID, out member))
@@ -37,7 +37,7 @@ public class RoomHub : Hub
         await Clients.Caller.SendAsync("ReceiveOwnRoomMember", member);
         Task[] tasks = [
             Clients.Caller.SendAsync("ReceiveRoom", room),
-            Clients.Group(room.Name).SendAsync("MemberJoined", member),
+            Clients.Group(room.ID).SendAsync("MemberJoined", member),
         ];
 
         await Task.WhenAll(tasks);
@@ -53,7 +53,7 @@ public class RoomHub : Hub
         logger.LogInformation($"Sending chat message: {content} from {userID}");
 
         ChatMessage chatMessage = room.Chat.Send(userID, content);
-        await Clients.Group(room.Name).SendAsync("ReceiveChatMessage", chatMessage);
+        await Clients.Group(room.ID).SendAsync("ReceiveChatMessage", chatMessage);
     }
 
     public async Task ToggleHostQueueStatus()
@@ -89,7 +89,7 @@ public class RoomHub : Hub
             }
         }
 
-        await Clients.Group(room.Name).SendAsync("ReceiveRoom", room);
+        await Clients.Group(room.ID).SendAsync("ReceiveRoom", room);
     }
 
     public async Task<IEnumerable<Media>> YTSearch(string query)
@@ -129,7 +129,7 @@ public class RoomHub : Hub
         {
             member.Username = newUsername;
             logger.LogInformation($"User: {userID} change their username to {newUsername}");
-            await Clients.Group(room.Name).SendAsync("ReceiveRoom", room);
+            await Clients.Group(room.ID).SendAsync("ReceiveRoom", room);
             return true;
         }
 
@@ -144,7 +144,7 @@ public class RoomHub : Hub
         logger.LogInformation("User disconnected: {UserID}", userID);
 
         await room.RemoveMember(userID);
-        await Groups.RemoveFromGroupAsync(Context.ConnectionId, room.Name);
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId, room.ID);
 
         await base.OnDisconnectedAsync(exception);
     }
@@ -162,7 +162,7 @@ public class Room
     public ConcurrentDictionary<string, RoomMember> Members { get; set; } = new();
 
     public string Name { get; set; } = "";
-    public Guid ID { get; } = new();
+    public string ID { get; } = Guid.NewGuid().ToString();
 
     public void RemoveFromHostQueue(string userID)
     {
@@ -177,11 +177,11 @@ public class Room
         if (HostQueue.FirstOrDefault(h => h.ID == userID) is not null)
         {
             RemoveFromHostQueue(userID);
-            await roomHubContext.Clients.Group(Name).SendAsync("ReceiveRoom", this);
+            await roomHubContext.Clients.Group(ID).SendAsync("ReceiveRoom", this);
         }
 
         Members.Remove(userID, out _);
-        await roomHubContext.Clients.Group(Name).SendAsync("MemberLeft", userID);
+        await roomHubContext.Clients.Group(ID).SendAsync("MemberLeft", userID);
     }
 
     public async Task NextSession(bool preventHostRequeue = false)
@@ -230,7 +230,7 @@ public class Room
                     Session = new Session(prevHost, prevHostMedia, onSessionTimerEnd);
             }
 
-            await roomHubContext.Clients.Group(Name).SendAsync("ReceiveRoom", this);
+            await roomHubContext.Clients.Group(ID).SendAsync("ReceiveRoom", this);
             logger.LogInformation("Advanced to next session");
         }
         catch (Exception ex)
