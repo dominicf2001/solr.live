@@ -1,3 +1,45 @@
+using System.Diagnostics.Tracing;
+
+sealed class HttpEventListener : EventListener
+{
+    protected override void OnEventSourceCreated(EventSource eventSource)
+    {
+        switch (eventSource.Name)
+        {
+            case "System.Net.Http":
+                EnableEvents(eventSource, EventLevel.Informational, EventKeywords.All);
+                break;
+
+            case "System.Threading.Tasks.TplEventSource":
+                const EventKeywords TasksFlowActivityIds = (EventKeywords)0x80;
+                EnableEvents(eventSource, EventLevel.LogAlways, TasksFlowActivityIds);
+                break;
+        }
+
+        base.OnEventSourceCreated(eventSource);
+    }
+
+    protected override void OnEventWritten(EventWrittenEventArgs eventData)
+    {
+        if (eventData.EventId == 1)
+        {
+            var scheme = (string)eventData.Payload[0];
+            var host = (string)eventData.Payload[1];
+            var port = (int)eventData.Payload[2];
+            var pathAndQuery = (string)eventData.Payload[3];
+            var versionMajor = (byte)eventData.Payload[4];
+            var versionMinor = (byte)eventData.Payload[5];
+            var policy = (HttpVersionPolicy)eventData.Payload[6];
+
+            Console.WriteLine($"{eventData.ActivityId} {eventData.EventName} {scheme}://{host}:{port}{pathAndQuery} HTTP/{versionMajor}.{versionMinor}");
+        }
+        else if (eventData.EventId == 2)
+        {
+            Console.WriteLine(eventData.ActivityId + " " + eventData.EventName);
+        }
+    }
+}
+
 public static class RoomUtils
 {
     public static List<string> GetMusicKeywords()
@@ -21,22 +63,43 @@ public static class RoomUtils
 
     public static string GenRandomUsername()
     {
-        Random Random = new Random();
+        Random random = new Random();
+        List<string> musicAdjectives = new List<string>
+    {
+        "Melodic", "Rhythmic", "Harmonic", "Acoustic", "Electric", "Jazzy", "Funky", "Soulful", "Groovy", "Bluesy",
+        "Classical", "Rockin'", "Poppin'", "Operatic", "Orchestral", "Symphonic", "Choral", "Instrumental", "Vocal", "Lyrical",
+        "Brassy", "Percussive", "Synthy", "Bassy", "Treble", "Reggae", "Folky", "Country", "Hip-Hop", "Rap",
+        "Techno", "House", "Trance", "Ambient", "Indie", "Alternative", "Punk", "Metal", "Grunge", "Emo",
+        "Reggaeton", "Salsa", "Samba", "Bossa Nova", "Flamenco", "Tango", "Disco", "Dubstep", "EDM", "Lo-Fi",
+        "Psychedelic", "Progressive", "Experimental", "Avant-garde", "Minimalist", "Baroque", "Renaissance", "Medieval", "Tribal", "World"
+    };
 
-        List<string> Adjectives = new List<string>
-        {
-            "Brave", "Clever", "Swift", "Mighty", "Wise", "Fierce", "Gentle", "Noble", "Bold", "Curious",
-            "Quiet", "Loyal", "Daring", "Fearless", "Friendly", "Witty", "Eager", "Kind", "Charming", "Jolly"
-        };
+        List<string> musicNouns = new List<string>
+    {
+        "Chord", "Melody", "Rhythm", "Beat", "Harmony", "Tune", "Song", "Ballad", "Anthem", "Lullaby",
+        "Symphony", "Concerto", "Sonata", "Aria", "Opus", "Overture", "Fugue", "Etude", "Nocturne", "Rhapsody",
+        "Scale", "Arpeggio", "Riff", "Hook", "Bridge", "Chorus", "Verse", "Refrain", "Coda", "Interlude",
+        "Solo", "Duet", "Trio", "Quartet", "Ensemble", "Orchestra", "Band", "Choir", "Crescendo", "Diminuendo",
+        "Forte", "Piano", "Allegro", "Adagio", "Andante", "Tempo", "Timbre", "Pitch", "Octave", "Interval",
+        "Note", "Staff", "Clef", "Key", "Signature", "Measure", "Bar", "Rest", "Fermata", "Staccato",
+        "Legato", "Vibrato", "Tremolo", "Glissando", "Pizzicato", "Portamento", "Falsetto", "Soprano", "Alto", "Tenor",
+        "Bass", "Baritone", "Treble", "Contralto", "Countertenor", "Mezzo", "Castrato", "Coloratura", "Bel Canto", "Scat"
+    };
 
-        List<string> Nouns = new List<string>
-        {
-            "Lion", "Tiger", "Eagle", "Bear", "Fox", "Wolf", "Dragon", "Hawk", "Panther", "Falcon",
-            "Raven", "Phoenix", "Shark", "Dolphin", "Otter", "Panda", "Gorilla", "Leopard", "Whale", "Unicorn"
-        };
-        string adjective = Adjectives[Random.Next(Adjectives.Count)];
-        string noun = Nouns[Random.Next(Nouns.Count)];
-        return $"{adjective} {noun}";
+        List<string> instruments = new List<string>
+    {
+        "Guitar", "Piano", "Drums", "Violin", "Cello", "Flute", "Trumpet", "Saxophone", "Clarinet", "Harp",
+        "Accordion", "Banjo", "Ukulele", "Harmonica", "Oboe", "Bassoon", "Tuba", "Trombone", "Xylophone", "Marimba",
+        "Synthesizer", "Keyboard", "Bass", "Mandolin", "Sitar", "Tabla", "Didgeridoo", "Bagpipes", "Fiddle", "Lute",
+        "Theremin", "Glockenspiel", "Vibraphone", "Timpani", "Bongos", "Congas", "Djembe", "Cajon", "Castanets", "Tambourine"
+    };
 
+        string adjective = musicAdjectives[random.Next(musicAdjectives.Count)];
+        string noun = musicNouns[random.Next(musicNouns.Count)];
+        string instrument = instruments[random.Next(instruments.Count)];
+
+        int randomNumber = random.Next(5);
+
+        return $"{adjective}{noun}{instrument}";
     }
 }

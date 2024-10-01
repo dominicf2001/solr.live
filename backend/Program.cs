@@ -15,6 +15,8 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
+using var httpEventListener = new HttpEventListener();
+
 app.MapHub<RoomHub>("/roomHub");
 
 app.Run("http://0.0.0.0:5066");
