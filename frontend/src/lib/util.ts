@@ -25,6 +25,15 @@ export function scrollToBottom(node: HTMLElement | null) {
 	return { update: scroll }
 };
 
-export function deriveSkipsNeeded(room: Room) {
-	return Math.ceil(Object.values(room.members).length);
-} 
+export function formatDate(dateStr: string): string {
+	const date = new Date(dateStr);
+	let hours = date.getHours();
+	const minutes = date.getMinutes().toString().padStart(2, "0");
+	const ampm = hours >= 12 ? "PM" : "AM";
+
+	hours = hours % 12;
+	hours = hours ? hours : 12;
+
+	const formattedHours = hours.toString().padStart(2, "0");
+	return `${formattedHours}:${minutes} ${ampm}`;
+}

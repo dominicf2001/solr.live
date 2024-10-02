@@ -102,4 +102,19 @@ public static class RoomUtils
 
         return $"{adjective}{noun}{instrument}";
     }
+
+    static string GenAvatar()
+    {
+        string[] seeds = {
+            "Luis", "Adrian", "Aidan", "Mackenzie", "Mason", "Maria", "George",
+            "Alexander", "Aiden", "Katherine", "Jack", "Oliver", "Nolan",
+            "Liliana", "Kingston", "Leo", "Leah", "Riley", "Brian", "Andrea"
+        };
+
+        Random random = new Random();
+        int index = random.Next(seeds.Length);
+
+        string seed = seeds[index];
+        return $"https://api.dicebear.com/9.x/notionists-neutral/svg?seed={seed}";
+    }
 }

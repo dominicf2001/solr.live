@@ -1,7 +1,7 @@
 <script lang="ts">
     import type { ChatMessage, Media, Room, RoomMember } from "$lib/api";
     import { localStore } from "$lib/localStore.svelte";
-    import { deriveSkipsNeeded, scrollToBottom } from "$lib/util";
+    import { scrollToBottom } from "$lib/util";
     import type { HubConnection } from "@microsoft/signalr";
     import {
         HttpTransportType,
@@ -40,6 +40,10 @@
             mediaQueue.value.splice(index, 1);
         },
     };
+
+    function deriveSkipsNeeded(room: Room) {
+        return Math.ceil(Object.values(room.members).length);
+    }
 
     const search = $state({
         isLoading: false,

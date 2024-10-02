@@ -10,6 +10,7 @@ export interface Room {
 export interface RoomMember {
   id: string;
   username: string;
+  avatar: string;
 }
 
 export interface Session {
@@ -54,5 +55,6 @@ export interface ChatMessage {
   content: string
   authorID: string
   usernameAtDate: string;
+  avatarAtDate: string;
   date: string
 }

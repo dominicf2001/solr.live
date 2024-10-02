@@ -142,24 +142,22 @@ public class RoomHub : Hub
         return filteredVideos;
     }
 
-    public async Task<Boolean> ChangeUsername(string newUsername)
+    public async Task ChangeUsernameAndAvatar(string newUsername, string newAvatar)
     {
         Room room = roomManager.GetRoom("Test");
         string userID = Context.UserIdentifier ?? throw new InvalidOperationException("User identifier is unexpectedly null");
 
-        logger.LogInformation($"User: {userID} attempting to change their username to {newUsername}");
+        logger.LogInformation($"User: {userID} attempting to change their username to {newUsername} and avatar to {newAvatar}");
         if (room.Members.Values.Any(m => m.Username == newUsername))
-            return false;
+            return;
 
         if (room.Members.TryGetValue(userID, out RoomMember? member))
         {
             member.Username = newUsername;
-            logger.LogInformation($"User: {userID} change their username to {newUsername}");
+            member.Avatar = newAvatar;
+            logger.LogInformation($"User: {userID} changed their username to {newUsername} and avatar to {newAvatar}");
             await Clients.Group(room.ID).SendAsync("ReceiveRoom", room);
-            return true;
         }
-
-        return false;
     }
 
     public override async Task OnDisconnectedAsync(Exception? exception)
@@ -296,6 +294,7 @@ public record RoomMember
 {
     public string ID { get; }
     public string Username { get; set; }
+    public string Avatar { get; set; } = "";
 
     public RoomMember(string id, string username)
     {
@@ -370,7 +369,8 @@ public class Chat
     public ChatMessage Send(string authorID, string content)
     {
         string username = room.Members[authorID]?.Username ?? "";
-        ChatMessage newChatMessage = new(authorID, username, content, DateTime.UtcNow);
+        string avatar = room.Members[authorID]?.Avatar ?? "";
+        ChatMessage newChatMessage = new(authorID, username, avatar, content, DateTime.UtcNow);
         Messages.Add(newChatMessage);
         return newChatMessage;
     }
@@ -386,13 +386,15 @@ public class ChatMessage
     public string Content { get; }
     public string AuthorID { get; }
     public string UsernameAtDate { get; }
+    public string AvatarAtDate { get; }
     public DateTime Date { get; }
 
-    public ChatMessage(string authorID, string username, string content, DateTime date)
+    public ChatMessage(string authorID, string username, string avatar, string content, DateTime date)
     {
         Date = date;
         AuthorID = authorID;
         Content = content;
+        AvatarAtDate = avatar;
         UsernameAtDate = username;
     }
 }
