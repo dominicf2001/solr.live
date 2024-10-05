@@ -11,14 +11,33 @@
     import { onMount } from "svelte";
     import "vidstack/bundle";
     import type { MediaPlayerElement } from "vidstack/elements";
-    import { Button, Drawer, Input, Popover, Spinner } from "flowbite-svelte";
-    import { Toolbar, ToolbarButton, ToolbarGroup } from "flowbite-svelte";
     import {
-        CirclePlusSolid,
+        Avatar,
+        Button,
+        Drawer,
+        Input,
+        Popover,
+        Spinner,
+        TabItem,
+        Tabs,
+        Tooltip,
+    } from "flowbite-svelte";
+    import {
+        AngleLeftOutline,
+        ChevronDownOutline,
+        ChevronUpOutline,
+        CirclePlusOutline,
         CloseCircleSolid,
+        ForwardStepSolid,
+        ListMusicOutline,
         ListMusicSolid,
+        MessagesSolid,
         PlaySolid,
+        StopSolid,
+        ThumbsDownSolid,
+        ThumbsUpSolid,
         TrashBinSolid,
+        UserCircleSolid,
         YoutubeSolid,
     } from "flowbite-svelte-icons";
     import { sineIn } from "svelte/easing";
@@ -31,15 +50,25 @@
     // ROOM
     let room: Room | undefined = $state(undefined);
     let ownRoomMember: RoomMember | undefined = $state(undefined);
-    let skipsNeeded = $derived(room ? deriveSkipsNeeded(room) : 0);
+    let skips = $derived.by(() => {
+        return {
+            needed: Math.ceil(Object.values(room?.members ?? []).length),
+            amount: room?.session?.skips?.length ?? 0,
+            alreadySkipped: room?.session?.skips
+                ? !!(room.session?.skips).find((id) => id === ownRoomMember?.id)
+                : false,
+            toggle: () => connection.send("ToggleSkip"),
+        };
+    });
 
     const isInHostQueue: boolean = $derived.by(
         () => !!room?.hostQueue?.some((h) => h.id === ownRoomMember?.id),
     );
 
-    const isHost: boolean = $derived.by(
-        () => room?.session?.host?.id === ownRoomMember?.id,
-    );
+    const isHost: boolean = $derived.by(() => {
+        if (!room?.session?.host || !ownRoomMember) return false;
+        return room.session.host.id === ownRoomMember.id;
+    });
 
     // MEDIA
     let mediaPlayer: MediaPlayerElement | undefined = $state(undefined);
@@ -51,7 +80,7 @@
             const index = mediaQueue.value.findIndex((m) => media.id === m.id);
             mediaQueue.value.splice(index, 1);
         },
-        hidden: false,
+        hidden: true,
         transitionParams: {
             y: 0,
             duration: 200,
@@ -86,19 +115,27 @@
         !mediaQueue.value.length && !isInHostQueue && !isHost,
     );
 
-    let chatMessage = $state({
+    let chat = $state({
         shouldScroll: false,
         container: null as HTMLElement | null,
         input: null as HTMLInputElement | null,
         send: () => {
-            if (!chatMessage.container || !chatMessage.input?.value) return;
-            connection.invoke("SendChatMessage", chatMessage.input.value);
+            if (!chat.container || !chat.input?.value) return;
+            connection.invoke("SendChatMessage", chat.input.value);
 
-            chatMessage.input.value = "";
-            chatMessage.input.focus();
-            chatMessage.input.select();
+            chat.input.value = "";
+            chat.input.focus();
+            chat.input.select();
         },
     });
+
+    const tabs = {
+        classes: {
+            active: "inline-block text-sm font-medium text-center disabled:cursor-not-allowed p-2 text-gray-50 border-b-1 active",
+            inactive:
+                "inline-block text-sm font-medium text-center disabled:cursor-not-allowed p-2 border-b-1 border-transparent hover:text-gray-300 text-gray-400 hover:border-gray-300",
+        },
+    };
 
     function calculateCurrentTime(): number {
         if (room?.session) {
@@ -106,10 +143,6 @@
         } else {
             return 0;
         }
-    }
-
-    function deriveSkipsNeeded(room: Room) {
-        return Math.ceil(Object.values(room.members).length);
     }
 
     onMount(() => {
@@ -137,16 +170,20 @@
                 console.log("Received own room member", receivedMember);
                 ownRoomMember = receivedMember;
 
+                console.log("After own: ", ownRoomMember);
                 if (
                     preferredUsername.value !== "" &&
                     preferredUsername.value !== ownRoomMember.username
                 ) {
                     try {
+                        console.log("A");
                         await connection.invoke(
                             "ChangeUsernameAndAvatar",
                             preferredUsername.value,
                             preferredAvatar.value,
                         );
+                        ownRoomMember.username = preferredUsername.value;
+                        ownRoomMember.avatar = preferredAvatar.value;
                     } catch (error) {
                         console.error(
                             "Error changing username or avatar:",
@@ -174,7 +211,7 @@
             "ReceiveChatMessage",
             (receivedChatMessage: ChatMessage) => {
                 if (receivedChatMessage.authorID == ownRoomMember?.id)
-                    chatMessage.shouldScroll = true;
+                    chat.shouldScroll = true;
                 room?.chat.messages.push(receivedChatMessage);
             },
         );
@@ -212,23 +249,21 @@
     });
 
     $effect(() => {
-        if (
-            chatMessage.shouldScroll &&
-            (room?.chat?.messages?.length ?? 0) > 0
-        ) {
-            scrollToBottom(chatMessage.container);
-            chatMessage.shouldScroll = false;
+        if (chat.shouldScroll && (room?.chat?.messages?.length ?? 0) > 0) {
+            scrollToBottom(chat.container);
+            chat.shouldScroll = false;
         }
     });
 </script>
 
 <main class="flex w-screen h-screen">
-    <section id="stage" class="flex flex-col">
-        <div class="w-full flex flex-grow justify-center p-4">
-            <div class="mt-20 w-full max-w-screen-md">
+    <section id="stage" class="flex flex-2 flex-col">
+        <div class="w-full flex flex-grow justify-center p-5">
+            <div class="mt-20 w-full min-w-[575px] max-w-screen-md">
                 <media-player
-                    class="w-full h-96 aspect-video rounded-lg shadow-lg overflow-hidden bg-background-dark"
+                    class="aspect-video rounded-md shadow-lg overflow-hidden bg-background-dark"
                     bind:this={mediaPlayer}
+                    streamType="live"
                     muted
                 >
                     <media-provider></media-provider>
@@ -237,32 +272,28 @@
             </div>
         </div>
         <Drawer
+            id="mediaQueue"
             backdrop={false}
             placement="bottom"
-            transitionType="fly"
+            transitionType="fade"
             transitionParams={mediaQueue.transitionParams}
             bind:hidden={mediaQueue.hidden}
-            id="sidebar1"
-            class="mb-14 h-2/5 bg-background-dark text-gray-400"
+            class="bottom-20 left-3 overflow-y-hidden rounded-md h-2/5 bg-background-dark text-gray-400"
         >
-            <div class="items-center bg-background-dark">
+            <div class="items-center h-full bg-background-dark">
                 <h5
                     id="drawer-label"
                     class="w-full inline-flex items-center mb-4 text-base font-semibold"
                 >
                     {#if !mediaQueue.searchMode}
-                        <ListMusicSolid class="w-6 h-6 me-2.5" />Song Queue
-                        <CirclePlusSolid
+                        <ListMusicOutline class="w-6 h-6 me-2.5" />My Queue
+                        <CirclePlusOutline
                             onclick={() => (mediaQueue.searchMode = true)}
                             class="hover:opacity-80 cursor-pointer ml-auto w-6 h-6 me-2.5"
                         />
                     {:else}
                         <div class="w-6 h-6 flex items-center justify-center">
-                            {#if search.isLoading}
-                                <Spinner size="6" color="blue" />
-                            {:else}
-                                <YoutubeSolid class="w-6 h-6" />
-                            {/if}
+                            <YoutubeSolid class="w-6 h-6" />
                         </div>
                         <Input
                             class="ml-2.5 text-white font-extrabold rounded-sm bg-background-darker border-opacity-25 h-6 w-5/6"
@@ -282,9 +313,9 @@
                     {/if}
                 </h5>
 
-                <div class="h-full overflow-y-auto pr-2">
-                    <div class="space-y-1">
-                        {#if mediaQueue.searchMode}
+                {#if mediaQueue.searchMode}
+                    {#if !search.isLoading}
+                        <div class="pb-8 h-full overflow-y-scroll">
                             {#each search.results as video, index (video.id)}
                                 <button
                                     class="w-full flex items-center space-x-2 p-1 rounded hover:bg-gray-800 transition-colors duration-200"
@@ -317,163 +348,318 @@
                                         </div>
                                     </div>
                                 </button>
-                                {#if index < 4}
-                                    <hr class="border-gray-700" />
-                                {/if}
                             {/each}
-                        {:else}
-                            {#each mediaQueue.value as video, index (video.id)}
-                                <div
-                                    class="w-full flex items-center space-x-2 p-1 rounded hover:bg-gray-800 transition-colors duration-200 group"
+                        </div>
+                    {:else}
+                        <div
+                            class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"
+                        >
+                            <Spinner size="9" color="blue" />
+                        </div>
+                    {/if}
+                {:else if mediaQueue.value.length}
+                    {#each mediaQueue.value as video, index (video.id)}
+                        <div
+                            class="w-full flex items-center space-x-2 p-1 rounded hover:bg-gray-800 transition-colors duration-200 group"
+                        >
+                            <div
+                                class="flex-shrink-0 w-6 flex items-center justify-center"
+                            >
+                                <span class="text-xs text-gray-500 font-medium"
+                                    >{index + 1}</span
                                 >
-                                    <div
-                                        class="flex-shrink-0 w-6 flex items-center justify-center"
-                                    >
-                                        <span
-                                            class="text-xs text-gray-500 font-medium"
-                                            >{index + 1}</span
-                                        >
-                                    </div>
-                                    <img
-                                        src={video.thumbnail?.url}
-                                        alt="Video thumbnail"
-                                        class="w-16 h-12 object-cover rounded"
-                                    />
-                                    <div class="flex-1 min-w-0">
-                                        <h3
-                                            class="text-xs text-left font-medium text-gray-200 truncate"
-                                        >
-                                            {video.title}
-                                        </h3>
-                                        <p
-                                            class="text-xs text-gray-400 truncate"
-                                        >
-                                            {video.author.channelTitle}
-                                        </p>
-                                        <div
-                                            class="flex items-center text-xs text-gray-500"
-                                        >
-                                            <span>{video.duration}</span>
-                                        </div>
-                                    </div>
-                                    <Button
-                                        size="md"
-                                        class="opacity-0 group-hover:opacity-100 transition-opacity duration-200"
-                                        onclick={() => mediaQueue.remove(video)}
-                                    >
-                                        <TrashBinSolid class="w-4 h-4" />
-                                    </Button>
+                            </div>
+                            <img
+                                src={video.thumbnail?.url}
+                                alt="Video thumbnail"
+                                class="w-16 h-12 object-cover rounded"
+                            />
+                            <div class="flex-1 min-w-0">
+                                <h3
+                                    class="text-xs text-left font-medium text-gray-200 truncate"
+                                >
+                                    {video.title}
+                                </h3>
+                                <p class="text-xs text-gray-400 truncate">
+                                    {video.author.channelTitle}
+                                </p>
+                                <div
+                                    class="flex items-center text-xs text-gray-500"
+                                >
+                                    <span>{video.duration}</span>
                                 </div>
-                                {#if index < mediaQueue.value.length - 1}
-                                    <hr class="border-gray-700" />
-                                {/if}
-                            {/each}
-                        {/if}
+                            </div>
+                            <Button
+                                size="md"
+                                class="opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                                onclick={() => mediaQueue.remove(video)}
+                            >
+                                <TrashBinSolid class="w-4 h-4" />
+                            </Button>
+                        </div>
+                    {/each}
+                {:else}
+                    <div
+                        class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"
+                    >
+                        <p>No songs</p>
                     </div>
-                </div>
+                {/if}
             </div>
         </Drawer>
 
         <footer>
-            <Toolbar class="rounded-none w-full bg-background-dark h-14">
-                <ToolbarGroup class="bg-background-dark">
-                    <ToolbarButton
-                        on:click={() =>
-                            (mediaQueue.hidden = !mediaQueue.hidden)}
-                        class="hover:bg-background-darker {!mediaQueue.hidden
-                            ? 'bg-background-darker'
-                            : ''}"
+            <div
+                class="p-2 items-center flex rounded-none w-full bg-background-dark"
+            >
+                <button
+                    onclick={() => {
+                        const mediaQueueElem =
+                            document.getElementById("mediaQueue");
+                        mediaQueue.hidden = mediaQueueElem
+                            ? !mediaQueueElem.classList.contains("hidden")
+                            : false;
+                    }}
+                    class="flex items-center rounded-sm h-full p-1.5 hover:bg-background-darker transition-colors duration-200 {!mediaQueue.hidden
+                        ? 'bg-background-darker'
+                        : ''}"
+                >
+                    <div
+                        class="relative flex-shrink-0 hover:bg-background-darker"
                     >
-                        <ListMusicSolid
-                            class="w-8 h-8 {!mediaQueue.hidden
-                                ? 'bg-background-darker'
-                                : ''}"
+                        <Avatar
+                            rounded
+                            src={ownRoomMember?.avatar}
+                            class="w-10 h-10 rounded-full bg-background-darker"
                         />
-                    </ToolbarButton>
-                </ToolbarGroup>
+                    </div>
+                    <div class="ml-3">
+                        <p class="text-sm font-semibold text-gray-100 truncate">
+                            {ownRoomMember?.username ?? "Loading..."}
+                        </p>
+                        <div
+                            class="flex items-center text-left text-xs text-gray-400 truncate"
+                        >
+                            <ListMusicSolid />
+                            <p class="ml-1">My Queue</p>
+                        </div>
+                    </div>
+                    {#if mediaQueue.hidden}
+                        <ChevronDownOutline class="ml-2 text-gray-400" />
+                    {:else}
+                        <ChevronUpOutline class="ml-2 text-gray-400" />
+                    {/if}
+                </button>
+                <div class="flex items-center ml-auto mr-auto text-gray-400">
+                    <button
+                        disabled={!room?.session}
+                        class="mr-4 {skips.alreadySkipped
+                            ? 'text-gray-50'
+                            : 'hover:text-gray-50'} disabled:opacity-50 disabled:hover:text-gray-400"
+                        onclick={skips.toggle}
+                    >
+                        <ForwardStepSolid size="xl" />
+                    </button>
+                    {#if room?.session}
+                        <Tooltip class="bg-background-darker z-50"
+                            >Skip song ({skips.amount} / {skips.needed})</Tooltip
+                        >
+                    {/if}
+                    <button class="mr-2 hover:text-gray-50">
+                        <ThumbsUpSolid size="xl" />
+                    </button>
+                    <button class="hover:text-gray-50">
+                        <ThumbsDownSolid size="xl" />
+                    </button>
+                </div>
                 {#if disableHostQueueButton}
                     <Popover
-                        class="w-64 text-sm font-light "
+                        class="text-center w-max text-sm font-light "
                         triggeredBy="#joinHostQueueButton"
                         >Add a song to your queue first!</Popover
                     >
                 {/if}
-                <ToolbarButton
+                <Button
                     id="joinHostQueueButton"
                     disabled={disableHostQueueButton}
-                    slot="end"
-                    on:click={() => connection.invoke("ToggleHostQueueStatus")}
-                    class="flex items-center px-4 py-2 rounded-full transition-all duration-300 {disableHostQueueButton
-                        ? 'bg-gray-600 text-gray-400 hover:bg-gray-600'
-                        : isHost || isInHostQueue
-                          ? 'bg-red-600 hover:bg-red-700 text-white'
-                          : 'bg-blue-600 hover:bg-blue-700 text-white'}"
+                    class="w-36"
+                    onclick={() => connection.invoke("ToggleHostQueueStatus")}
+                    color={isHost || isInHostQueue ? "red" : "blue"}
                 >
-                    <PlaySolid
-                        class="w-5 h-5 mr-1 {disableHostQueueButton
-                            ? 'opacity-50'
-                            : ''}"
-                    />
                     {#if isHost}
+                        <StopSolid />
                         Quit DJing
                     {:else if isInHostQueue}
+                        <AngleLeftOutline />
                         Leave Queue
                     {:else}
+                        <PlaySolid />
                         Play a song!
                     {/if}
-                </ToolbarButton>
-            </Toolbar>
+                </Button>
+            </div>
         </footer>
     </section>
     <aside
-        class="border-l border-l-tertiary-light flex flex-col bg-background-dark ml-auto h-screen w-[32rem]"
+        class="border-l border-l-tertiary-light flex flex-col bg-background-dark ml-auto h-screen sm:w-0 md:w-[32rem] transition-all duration-300 ease-in-out"
         id="chat"
     >
-        <ol
-            bind:this={chatMessage.container}
-            class="flex-grow overflow-y-scroll p-4"
-        >
-            {#each room?.chat.messages ?? [] as chatMessage (chatMessage.date)}
-                <li class="flex items-start space-x-4 mb-4">
-                    <div class="w-10 h-10">
-                        <img
-                            class="rounded-full"
-                            src={chatMessage.avatarAtDate}
-                            alt="User avatar"
-                        />
-                    </div>
-                    <div class="text-sm">
-                        <div class="flex items-center space-x-2">
-                            <span class="text-blue-500 font-bold">
-                                {chatMessage.usernameAtDate}
-                            </span>
-                            <span class="text-gray-400 text-xs"
-                                >{formatDate(chatMessage.date)}</span
-                            >
-                        </div>
-                        <p class="text-white">
-                            {chatMessage.content}
-                        </p>
-                    </div>
-                </li>
-            {/each}
-        </ol>
-        <form
-            class="p-2"
-            onsubmit={(e) => {
-                e.preventDefault();
-                chatMessage.send();
-            }}
-        >
-            <Input
-                class="text-white font-extrabold rounded-sm bg-background-darker border-opacity-25"
-                type="text"
-                placeholder="Send a message"
-                let:props
+        <Tabs contentClass="bg-none h-full" tabStyle="full">
+            <TabItem
+                activeClasses={tabs.classes.active}
+                inactiveClasses={tabs.classes.inactive}
+                divClass="h-full flex flex-col"
+                class="h-full"
+                open
             >
-                <input {...props} bind:this={chatMessage.input} />
-            </Input>
-        </form>
+                <div slot="title" class="flex items-center gap-2">
+                    <MessagesSolid size="md" />
+                    Chat
+                </div>
+                {#if !room?.chat?.messages?.length}
+                    <div class="h-full flex items-center justify-center">
+                        <p class="text-gray-400">No messages</p>
+                    </div>
+                {/if}
+                <ol
+                    bind:this={chat.container}
+                    class="flex-grow overflow-y-scroll p-4"
+                >
+                    {#each room?.chat.messages ?? [] as chatMessage (chatMessage.date)}
+                        <li class="flex items-start space-x-4 mb-1">
+                            <div class="w-14 h-14">
+                                <Avatar
+                                    class="rounded-full bg-transparent"
+                                    src={chatMessage.avatarAtDate}
+                                    alt="User avatar"
+                                />
+                            </div>
+                            <div class="lg:text-sm md:text-xs w-full">
+                                <div class="flex items-center">
+                                    <span class="text-blue-500 font-bold">
+                                        {chatMessage.usernameAtDate}
+                                    </span>
+                                    <span class="ml-auto text-gray-400"
+                                        >{formatDate(chatMessage.date)}</span
+                                    >
+                                </div>
+                                <p class="text-white">
+                                    {chatMessage.content}
+                                </p>
+                            </div>
+                        </li>
+                    {/each}
+                </ol>
+                <form
+                    class="p-2"
+                    onsubmit={(e) => {
+                        e.preventDefault();
+                        chat.send();
+                    }}
+                >
+                    <Input
+                        class="text-white font-extrabold rounded-sm bg-background-darker border-opacity-25"
+                        type="text"
+                        placeholder="Send a message"
+                        let:props
+                    >
+                        <input {...props} bind:this={chat.input} />
+                    </Input>
+                </form>
+            </TabItem>
+            <TabItem
+                activeClasses={tabs.classes.active}
+                inactiveClasses={tabs.classes.inactive}
+            >
+                <div slot="title" class="flex items-center gap-2">
+                    <UserCircleSolid size="md" />
+                    Members
+                </div>
+                <div class="flex-grow overflow-y-auto p-4">
+                    {#if room?.session?.host}
+                        <h3 class="text-sm font-semibold text-gray-400 mb-2">
+                            DJ
+                        </h3>
+                        <ol class="mb-2">
+                            <li
+                                class="flex items-center space-x-3 p-2 rounded-md bg-primary-900 bg-opacity-50"
+                            >
+                                <div class="relative">
+                                    <Avatar
+                                        class="w-10 h-10 rounded-full bg-transparent"
+                                        src={room.session.host.avatar}
+                                        alt={room.session.host.username}
+                                    />
+                                </div>
+                                <div>
+                                    <p
+                                        class="text-sm font-semibold text-gray-200"
+                                    >
+                                        {room.session.host.username}
+                                    </p>
+                                </div>
+                            </li>
+                        </ol>
+                    {/if}
+                    {#if room?.hostQueue?.length}
+                        <h3 class="text-sm font-semibold text-gray-400 mb-2">
+                            DJ Queue
+                        </h3>
+                        <ol class="mb-2">
+                            {#each room.hostQueue as member, index (member.id)}
+                                <li
+                                    class="flex items-center space-x-3 p-2 rounded-md hover:bg-gray-800"
+                                >
+                                    <div class="relative">
+                                        <Avatar
+                                            class="w-10 h-10 rounded-full bg-transparent"
+                                            src={member.avatar}
+                                            alt={member.username}
+                                        />
+                                        <div
+                                            class="absolute -top-1 -left-1 bg-gray-700 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center"
+                                        >
+                                            {index + 1}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <p
+                                            class="text-sm font-semibold text-gray-200"
+                                        >
+                                            {member.username}
+                                        </p>
+                                    </div>
+                                </li>
+                            {/each}
+                        </ol>
+                    {/if}
+
+                    <div>
+                        <h3 class="text-sm font-semibold text-gray-400 mb-2">
+                            Listeners
+                        </h3>
+                        <ul class="space-y-2">
+                            {#each Object.values(room?.members ?? []) as member (member.id)}
+                                <li
+                                    class="flex items-center space-x-3 p-2 rounded-md hover:bg-gray-800"
+                                >
+                                    <Avatar
+                                        class="w-10 h-10 rounded-full bg-transparent"
+                                        src={member.avatar}
+                                        alt={member.username}
+                                    />
+                                    <p
+                                        class="text-sm font-semibold text-gray-200"
+                                    >
+                                        {member.username}
+                                    </p>
+                                </li>
+                            {/each}
+                        </ul>
+                    </div>
+                </div>
+            </TabItem>
+        </Tabs>
     </aside>
 </main>
 

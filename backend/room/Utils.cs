@@ -83,11 +83,7 @@ public static class RoomUtils
         "Forte", "Piano", "Allegro", "Adagio", "Andante", "Tempo", "Timbre", "Pitch", "Octave", "Interval",
         "Note", "Staff", "Clef", "Key", "Signature", "Measure", "Bar", "Rest", "Fermata", "Staccato",
         "Legato", "Vibrato", "Tremolo", "Glissando", "Pizzicato", "Portamento", "Falsetto", "Soprano", "Alto", "Tenor",
-        "Bass", "Baritone", "Treble", "Contralto", "Countertenor", "Mezzo", "Castrato", "Coloratura", "Bel Canto", "Scat"
-    };
-
-        List<string> instruments = new List<string>
-    {
+        "Bass", "Baritone", "Treble", "Contralto", "Countertenor", "Mezzo", "Castrato", "Coloratura", "Bel Canto", "Scat",
         "Guitar", "Piano", "Drums", "Violin", "Cello", "Flute", "Trumpet", "Saxophone", "Clarinet", "Harp",
         "Accordion", "Banjo", "Ukulele", "Harmonica", "Oboe", "Bassoon", "Tuba", "Trombone", "Xylophone", "Marimba",
         "Synthesizer", "Keyboard", "Bass", "Mandolin", "Sitar", "Tabla", "Didgeridoo", "Bagpipes", "Fiddle", "Lute",
@@ -96,25 +92,24 @@ public static class RoomUtils
 
         string adjective = musicAdjectives[random.Next(musicAdjectives.Count)];
         string noun = musicNouns[random.Next(musicNouns.Count)];
-        string instrument = instruments[random.Next(instruments.Count)];
 
         int randomNumber = random.Next(5);
 
-        return $"{adjective}{noun}{instrument}";
+        return $"{adjective}{noun}";
     }
 
-    static string GenAvatar()
+    public static string GenRandomAvatar()
     {
         string[] seeds = {
-            "Luis", "Adrian", "Aidan", "Mackenzie", "Mason", "Maria", "George",
-            "Alexander", "Aiden", "Katherine", "Jack", "Oliver", "Nolan",
-            "Liliana", "Kingston", "Leo", "Leah", "Riley", "Brian", "Andrea"
+            "Destiny", "Aidan", "Adrian", "Christopher", "Alexander", "Aiden",
+            "Easton", "Eden", "Chase", "Amaya", "Avery", "Brooklynn", "Caleb",
+            "Christian", "Andrea", "Brian", "Eliza", "Emery", "George", "Jessica"
         };
 
         Random random = new Random();
         int index = random.Next(seeds.Length);
 
         string seed = seeds[index];
-        return $"https://api.dicebear.com/9.x/notionists-neutral/svg?seed={seed}";
+        return $"https://api.dicebear.com/9.x/adventurer/svg?seed=${seed}&hair=long10,short19,short18,short17,short16,short15,short14,long01,long02,short10,short09,short08,short11,short12,short13,short03,short02,short01,long24,long23,long22,long15,long14&skinColor=f2d3b1,ecad80&backgroundColor=c0aede,d1d4f9,ffd5dc,ffdfbf,b6e3f4";
     }
 }

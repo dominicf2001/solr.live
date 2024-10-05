@@ -31,7 +31,9 @@ public class RoomHub : Hub
             if (duplicates > 0)
                 username += duplicates;
 
-            room.Members[userID] = member = new RoomMember(userID, username);
+            string avatar = RoomUtils.GenRandomAvatar();
+
+            room.Members[userID] = member = new RoomMember(userID, username, avatar);
         }
 
         await Clients.Caller.SendAsync("ReceiveOwnRoomMember", member);
@@ -56,20 +58,23 @@ public class RoomHub : Hub
         await Clients.Group(room.ID).SendAsync("ReceiveChatMessage", chatMessage);
     }
 
-    public async Task SendSkip()
+    public async Task ToggleSkip()
     {
         Room room = roomManager.GetRoom("Test");
         string userID = Context.UserIdentifier ?? throw new InvalidOperationException("User identifier is unexpectedly null");
-        logger.LogInformation($"Attempt from {userID} to send a skip");
+        logger.LogInformation($"Attempt from {userID} to toggle a skip");
         if (room?.Session is null) return;
 
-        bool isANewSkip = room.Session.Skips.Add(userID);
-        if (!isANewSkip)
+        bool alreadySkipped = room.Session.Skips.Add(userID);
+        if (!alreadySkipped)
         {
-            logger.LogInformation($"{userID} already sent a skip");
-            return;
+            room.Session.Skips.Remove(userID);
+            logger.LogInformation($"{userID} removed a skip");
         }
-        logger.LogInformation($"{userID} sent a skip");
+        else
+        {
+            logger.LogInformation($"{userID} added a skip");
+        }
 
         if (room.Session.CanSkip(room))
         {
@@ -296,10 +301,11 @@ public record RoomMember
     public string Username { get; set; }
     public string Avatar { get; set; } = "";
 
-    public RoomMember(string id, string username)
+    public RoomMember(string id, string username, string avatar)
     {
         ID = id;
         Username = username;
+        Avatar = avatar;
     }
 
     public override string ToString() => Username;
