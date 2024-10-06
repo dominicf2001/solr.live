@@ -34,7 +34,6 @@
         MessagesSolid,
         PlaySolid,
         StopSolid,
-        ThumbsDownSolid,
         ThumbsUpSolid,
         TrashBinSolid,
         UserCircleSolid,
@@ -250,10 +249,16 @@
             },
         );
 
-        //window.onbeforeunload = () => {
-        //    // warn user when they exit
-        //    return isHost || isInHostQueue;
-        //};
+        window.onbeforeunload = () => {
+            // warn user when they exit
+            if (isHost) {
+                return "Are you sure you want to leave? You will lose your spot as DJ.";
+            }
+
+            if (isInHostQueue) {
+                return "Are you sure you want to leave? You will lose your spot in the DJ queue.";
+            }
+        };
 
         return () => {
             unsubPlayer?.();
@@ -489,7 +494,7 @@
                         <ChevronUpOutline class="ml-2 text-gray-400" />
                     {/if}
                 </button>
-                <div class="flex items-center ml-auto mr-auto text-gray-400">
+                <div class="flex items-center ml-auto mr-4 text-gray-400">
                     <button
                         disabled={!room?.session}
                         class="mr-2 {skips.alreadySkipped
@@ -509,7 +514,7 @@
                     <button
                         disabled={!room?.session}
                         class="mr-2 {likes.alreadyLiked
-                            ? 'text-green-400'
+                            ? 'text-green-600'
                             : 'hover:text-gray-200'} disabled:opacity-50 disabled:hover:text-gray-400 disabled:cursor-not-allowed"
                         onclick={likes.toggle}
                     >
