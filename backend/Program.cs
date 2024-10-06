@@ -7,7 +7,20 @@ builder.Services.AddSingleton<IUserIdProvider, NameUserIdProvider>();
 builder.Services.AddSingleton<RoomManager>();
 builder.Services.AddSingleton<YoutubeExplode.YoutubeClient>();
 
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowFrontend", builder =>
+    {
+        builder.WithOrigins("https://test.dominicferrando.com")
+               .AllowAnyHeader()
+               .AllowAnyMethod()
+               .AllowCredentials(); 
+    });
+});
+
 var app = builder.Build();
+
+app.UseCors("AllowFrontend");
 
 if (!app.Environment.IsDevelopment())
 {
