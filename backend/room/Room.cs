@@ -87,6 +87,27 @@ public class RoomHub : Hub
         }
     }
 
+    public async Task ToggleLike()
+    {
+        Room room = roomManager.GetRoom("Test");
+        string userID = Context.UserIdentifier ?? throw new InvalidOperationException("User identifier is unexpectedly null");
+        logger.LogInformation($"Attempt from {userID} to toggle a like");
+        if (room?.Session is null) return;
+
+        bool alreadyLiked = room.Session.Likes.Add(userID);
+        if (!alreadyLiked)
+        {
+            room.Session.Likes.Remove(userID);
+            logger.LogInformation($"{userID} removed a like");
+        }
+        else
+        {
+            logger.LogInformation($"{userID} added a like");
+        }
+
+        await Clients.Group(room.ID).SendAsync("ReceiveRoom", room);
+    }
+
     public async Task ToggleHostQueueStatus()
     {
         Room room = roomManager.GetRoom("Test");
@@ -210,10 +231,19 @@ public class Room
             shouldReceiveRoom = true;
         }
 
-        if (Session != null && Session.Skips.Contains(userID))
+        if (Session != null)
         {
-            Session?.Skips.Remove(userID);
-            shouldReceiveRoom = true;
+            if (Session.Skips.Contains(userID))
+            {
+                Session.Skips.Remove(userID);
+                shouldReceiveRoom = true;
+            }
+
+            if (Session.Likes.Contains(userID))
+            {
+                Session.Likes.Remove(userID);
+                shouldReceiveRoom = true;
+            }
         }
 
         if (shouldReceiveRoom)
@@ -318,8 +348,7 @@ public class Session
     public Timer Timer { get; private set; }
 
     public Media Media { get; set; }
-    public int Likes { get; set; } = 0;
-    public int Dislikes { get; set; } = 0;
+    public HashSet<string> Likes { get; set; } = new();
     public HashSet<string> Skips { get; set; } = new();
 
     public bool CanSkip(Room room)

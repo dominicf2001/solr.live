@@ -16,7 +16,7 @@
         Button,
         Drawer,
         Input,
-        Popover,
+        Progressbar,
         Spinner,
         TabItem,
         Tabs,
@@ -54,10 +54,24 @@
         return {
             needed: Math.ceil(Object.values(room?.members ?? []).length),
             amount: room?.session?.skips?.length ?? 0,
-            alreadySkipped: room?.session?.skips
-                ? !!(room.session?.skips).find((id) => id === ownRoomMember?.id)
+            alreadySkipped: room?.session
+                ? !!room.session.skips.find((id) => id === ownRoomMember?.id)
                 : false,
             toggle: () => connection.send("ToggleSkip"),
+        };
+    });
+    let likes = $derived.by(() => {
+        return {
+            percentage:
+                !room || !room.session
+                    ? 0
+                    : (room.session.likes.length /
+                          Object.values(room.members).length) *
+                      100,
+            alreadyLiked: room?.session
+                ? !!room.session.likes.find((id) => id === ownRoomMember?.id)
+                : false,
+            toggle: () => connection.send("ToggleLike"),
         };
     });
 
@@ -129,11 +143,11 @@
         },
     });
 
-    const tabs = {
+    let tabs = {
         classes: {
-            active: "inline-block text-sm font-medium text-center disabled:cursor-not-allowed p-2 text-gray-50 border-b-1 active",
+            active: "inline-block text-sm font-medium text-center disabled:cursor-not-allowed p-2 text-gray-200 border-b-1 active",
             inactive:
-                "inline-block text-sm font-medium text-center disabled:cursor-not-allowed p-2 border-b-1 border-transparent hover:text-gray-300 text-gray-400 hover:border-gray-300",
+                "inline-block text-sm font-medium text-center disabled:cursor-not-allowed p-2 border-b-1 border-transparent hover:text-gray-300 text-gray-500 hover:border-gray-300",
         },
     };
 
@@ -258,7 +272,7 @@
 
 <main class="flex w-screen h-screen">
     <section id="stage" class="flex flex-2 flex-col">
-        <div class="w-full flex flex-grow justify-center p-5">
+        <div class="w-full flex flex-grow justify-center px-5">
             <div class="mt-20 w-full min-w-[575px] max-w-screen-md">
                 <media-player
                     class="aspect-video rounded-md shadow-lg overflow-hidden bg-background-dark"
@@ -269,6 +283,31 @@
                     <media-provider></media-provider>
                     <media-video-layout></media-video-layout>
                 </media-player>
+                {#if room?.session}
+                    <div
+                        class="w-1/5 bg-background-dark p-4 rounded-b-lg shadow-md"
+                    >
+                        <div class="w-full">
+                            <div class="flex items-center justify-between mb-2">
+                                <div class="flex items-center">
+                                    <ThumbsUpSolid
+                                        class="mr-2 text-green-600"
+                                        size="sm"
+                                    />
+                                    <span
+                                        class="text-sm font-semibold text-gray-400"
+                                        >{likes.percentage}%</span
+                                    >
+                                </div>
+                            </div>
+                            <Progressbar
+                                progress={likes.percentage}
+                                size="h-1"
+                                color="green"
+                            />
+                        </div>
+                    </div>
+                {/if}
             </div>
         </div>
         <Drawer
@@ -296,7 +335,7 @@
                             <YoutubeSolid class="w-6 h-6" />
                         </div>
                         <Input
-                            class="ml-2.5 text-white font-extrabold rounded-sm bg-background-darker border-opacity-25 h-6 w-5/6"
+                            class="ml-2.5 text-gray-200 font-extrabold rounded-sm bg-background-darker border-opacity-25 h-6 w-5/6"
                             size="sm"
                             type="text"
                             placeholder="Search"
@@ -453,30 +492,42 @@
                 <div class="flex items-center ml-auto mr-auto text-gray-400">
                     <button
                         disabled={!room?.session}
-                        class="mr-4 {skips.alreadySkipped
-                            ? 'text-gray-50'
-                            : 'hover:text-gray-50'} disabled:opacity-50 disabled:hover:text-gray-400"
+                        class="mr-2 {skips.alreadySkipped
+                            ? 'text-gray-200'
+                            : 'hover:text-gray-200'} disabled:opacity-50 disabled:hover:text-gray-400 disabled:cursor-not-allowed"
                         onclick={skips.toggle}
                     >
                         <ForwardStepSolid size="xl" />
                     </button>
-                    {#if room?.session}
-                        <Tooltip class="bg-background-darker z-50"
-                            >Skip song ({skips.amount} / {skips.needed})</Tooltip
-                        >
-                    {/if}
-                    <button class="mr-2 hover:text-gray-50">
+                    <Tooltip class="z-50 text-background-darker bg-gray-200">
+                        {#if room?.session}
+                            Skip song ({skips.amount} / {skips.needed})
+                        {:else}
+                            No song to skip
+                        {/if}
+                    </Tooltip>
+                    <button
+                        disabled={!room?.session}
+                        class="mr-2 {likes.alreadyLiked
+                            ? 'text-green-400'
+                            : 'hover:text-gray-200'} disabled:opacity-50 disabled:hover:text-gray-400 disabled:cursor-not-allowed"
+                        onclick={likes.toggle}
+                    >
                         <ThumbsUpSolid size="xl" />
                     </button>
-                    <button class="hover:text-gray-50">
-                        <ThumbsDownSolid size="xl" />
-                    </button>
+                    <Tooltip class="z-50 text-background-darker bg-gray-200">
+                        {#if room?.session}
+                            Like song
+                        {:else}
+                            No song to like
+                        {/if}
+                    </Tooltip>
                 </div>
                 {#if disableHostQueueButton}
-                    <Popover
-                        class="text-center w-max text-sm font-light "
+                    <Tooltip
+                        class="text-background-darker bg-gray-200"
                         triggeredBy="#joinHostQueueButton"
-                        >Add a song to your queue first!</Popover
+                        >Add a song to your queue first</Tooltip
                     >
                 {/if}
                 <Button
@@ -543,7 +594,7 @@
                                         >{formatDate(chatMessage.date)}</span
                                     >
                                 </div>
-                                <p class="text-white">
+                                <p class="text-gray-200">
                                     {chatMessage.content}
                                 </p>
                             </div>
@@ -558,7 +609,7 @@
                     }}
                 >
                     <Input
-                        class="text-white font-extrabold rounded-sm bg-background-darker border-opacity-25"
+                        class="text-gray-200 font-extrabold rounded-sm bg-background-darker border-opacity-25"
                         type="text"
                         placeholder="Send a message"
                         let:props
@@ -617,7 +668,7 @@
                                             alt={member.username}
                                         />
                                         <div
-                                            class="absolute -top-1 -left-1 bg-gray-700 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center"
+                                            class="absolute -top-1 -left-1 bg-gray-700 text-gray-200 text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center"
                                         >
                                             {index + 1}
                                         </div>
@@ -634,29 +685,42 @@
                         </ol>
                     {/if}
 
-                    <div>
-                        <h3 class="text-sm font-semibold text-gray-400 mb-2">
-                            Listeners
-                        </h3>
-                        <ul class="space-y-2">
-                            {#each Object.values(room?.members ?? []) as member (member.id)}
-                                <li
-                                    class="flex items-center space-x-3 p-2 rounded-md hover:bg-gray-800"
-                                >
-                                    <Avatar
-                                        class="w-10 h-10 rounded-full bg-transparent"
-                                        src={member.avatar}
-                                        alt={member.username}
-                                    />
-                                    <p
-                                        class="text-sm font-semibold text-gray-200"
-                                    >
-                                        {member.username}
-                                    </p>
-                                </li>
-                            {/each}
-                        </ul>
-                    </div>
+                    {#if room}
+                        {@const listeners = Object.values(
+                            room.members ?? [],
+                        ).filter(
+                            (m) =>
+                                !room?.hostQueue?.find((h) => h.id === m.id) &&
+                                room?.session?.host?.id !== m.id,
+                        )}
+                        {#if listeners.length}
+                            <h3
+                                class="text-sm font-semibold text-gray-400 mb-2"
+                            >
+                                Listeners
+                            </h3>
+                            <ul class="space-y-2">
+                                {#each listeners as member (member.id)}
+                                    {#if !room.hostQueue.find((m) => m.id === member.id) && room.session?.host?.id !== member.id}
+                                        <li
+                                            class="flex items-center space-x-3 p-2 rounded-md hover:bg-gray-800"
+                                        >
+                                            <Avatar
+                                                class="w-10 h-10 rounded-full bg-transparent"
+                                                src={member.avatar}
+                                                alt={member.username}
+                                            />
+                                            <p
+                                                class="text-sm font-semibold text-gray-200"
+                                            >
+                                                {member.username}
+                                            </p>
+                                        </li>
+                                    {/if}
+                                {/each}
+                            </ul>
+                        {/if}
+                    {/if}
                 </div>
             </TabItem>
         </Tabs>

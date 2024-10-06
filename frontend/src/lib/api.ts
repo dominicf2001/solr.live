@@ -17,8 +17,7 @@ export interface Session {
   host: RoomMember;
   startTime: string;
   media: Media;
-  likes: number;
-  dislikes: number;
+  likes: string[];
   skips: string[];
 }
 
