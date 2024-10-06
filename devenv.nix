@@ -13,7 +13,7 @@
   env.ORIGIN="https://test.dominicferrando.com";
 
   processes = {
-  	# front.exec = "bun ./frontend/build/index.js";
+  	front.exec = "bun ./frontend/build/index.js";
   	back.exec = "cd ./backend; dotnet run";
   };
 
