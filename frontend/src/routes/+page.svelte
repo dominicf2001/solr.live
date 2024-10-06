@@ -16,6 +16,7 @@
         Button,
         Drawer,
         Input,
+        Modal,
         Progressbar,
         Spinner,
         TabItem,
@@ -46,6 +47,9 @@
     let preferredUsername = localStore<string>("preferredUsername", "");
     let preferredAvatar = localStore<string>("preferredAvatar", "");
 
+    // MISC
+    let showWelcomeModal = $state(true);
+
     // ROOM
     let room: Room | undefined = $state(undefined);
     let ownRoomMember: RoomMember | undefined = $state(undefined);
@@ -73,6 +77,7 @@
             toggle: () => connection.send("ToggleLike"),
         };
     });
+    const defaultMediaUrl = "https://www.youtube.com/watch?v=X59TpY0qtHE";
 
     const isInHostQueue: boolean = $derived.by(
         () => !!room?.hostQueue?.some((h) => h.id === ownRoomMember?.id),
@@ -158,6 +163,22 @@
         }
     }
 
+    async function changeUsername(newUsername: string) {
+        try {
+            await connection.invoke(
+                "ChangeUsernameAndAvatar",
+                newUsername,
+                preferredAvatar.value,
+            );
+            if (ownRoomMember) {
+                ownRoomMember.username = preferredUsername.value;
+                ownRoomMember.avatar = preferredAvatar.value;
+            }
+        } catch (error) {
+            console.error("Error changing username or avatar:", error);
+        }
+    }
+
     onMount(() => {
         // WEBSOCKET CONNECTION
         connection = new HubConnectionBuilder()
@@ -174,7 +195,7 @@
             room = receivedRoom;
 
             if (!mediaPlayer) return;
-            mediaPlayer.src = room?.session?.media?.url ?? "";
+            mediaPlayer.src = room?.session?.media?.url ?? defaultMediaUrl;
         });
 
         connection.on(
@@ -183,26 +204,11 @@
                 console.log("Received own room member", receivedMember);
                 ownRoomMember = receivedMember;
 
-                console.log("After own: ", ownRoomMember);
                 if (
                     preferredUsername.value !== "" &&
                     preferredUsername.value !== ownRoomMember.username
                 ) {
-                    try {
-                        console.log("A");
-                        await connection.invoke(
-                            "ChangeUsernameAndAvatar",
-                            preferredUsername.value,
-                            preferredAvatar.value,
-                        );
-                        ownRoomMember.username = preferredUsername.value;
-                        ownRoomMember.avatar = preferredAvatar.value;
-                    } catch (error) {
-                        console.error(
-                            "Error changing username or avatar:",
-                            error,
-                        );
-                    }
+                    await changeUsername(preferredUsername.value);
                 } else {
                     preferredUsername.value = ownRoomMember.username;
                     preferredAvatar.value = ownRoomMember.avatar;
@@ -237,17 +243,14 @@
         connection.start();
 
         // MEDIA PLAYER
-        const unsubPlayer = mediaPlayer?.subscribe(
-            ({ paused, canPlay, autoPlay }) => {
-                if (!mediaPlayer) return;
+        const unsubPlayer = mediaPlayer?.subscribe(({ canPlay }) => {
+            if (!mediaPlayer) return;
 
-                if (canPlay) {
-                    if (paused || autoPlay) mediaPlayer.play();
-
-                    mediaPlayer.currentTime = calculateCurrentTime();
-                }
-            },
-        );
+            if (canPlay) {
+                mediaPlayer.currentTime = calculateCurrentTime();
+                mediaPlayer.play();
+            }
+        });
 
         window.onbeforeunload = () => {
             // warn user when they exit
@@ -276,14 +279,42 @@
 </script>
 
 <main class="flex w-screen h-screen">
+    <Modal
+        class="bg-background-dark"
+        bind:open={showWelcomeModal}
+        size="xs"
+        autoclose
+    >
+        <div class="text-center">
+            <ListMusicSolid
+                class="mx-auto mb-4 text-gray-400 w-12 h-12 dark:text-gray-200"
+            />
+            <h3
+                class="mb-5 text-lg font-normal text-gray-500 dark:text-gray-400"
+            >
+                Welcome, traveler
+            </h3>
+            <Button
+                onclick={() => {
+                    if (mediaPlayer) {
+                        mediaPlayer.play();
+                    }
+                }}
+                color="blue"
+                class="me-2">Let me in</Button
+            >
+        </div>
+    </Modal>
+
     <section id="stage" class="flex flex-2 flex-col">
         <div class="w-full flex flex-grow justify-center px-5">
             <div class="mt-20 w-full min-w-[575px] max-w-screen-md">
                 <media-player
                     class="aspect-video rounded-md shadow-lg overflow-hidden bg-background-dark"
                     bind:this={mediaPlayer}
+                    load="play"
+                    loop
                     streamType="live"
-                    muted
                 >
                     <media-provider></media-provider>
                     <media-video-layout></media-video-layout>
@@ -508,7 +539,7 @@
                         {#if room?.session}
                             Skip song ({skips.amount} / {skips.needed})
                         {:else}
-                            No song to skip
+                            No one is DJing
                         {/if}
                     </Tooltip>
                     <button
@@ -524,7 +555,7 @@
                         {#if room?.session}
                             Like song
                         {:else}
-                            No song to like
+                            No one is DJing
                         {/if}
                     </Tooltip>
                 </div>
@@ -539,7 +570,9 @@
                     id="joinHostQueueButton"
                     disabled={disableHostQueueButton}
                     class="w-36"
-                    onclick={() => connection.invoke("ToggleHostQueueStatus")}
+                    onclick={() => {
+                        connection.invoke("ToggleHostQueueStatus");
+                    }}
                     color={isHost || isInHostQueue ? "red" : "blue"}
                 >
                     {#if isHost}
