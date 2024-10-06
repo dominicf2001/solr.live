@@ -11,10 +11,10 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", builder =>
     {
-        builder.WithOrigins("https://test.dominicferrando.com")
+        builder.WithOrigins(["https://test.dominicferrando.com", "http://localhost.com"])
                .AllowAnyHeader()
                .AllowAnyMethod()
-               .AllowCredentials(); 
+               .AllowCredentials();
     });
 });
 
