@@ -8,7 +8,6 @@
         HubConnectionBuilder,
     } from "@microsoft/signalr";
     import dayjs from "dayjs";
-    import { onMount } from "svelte";
     import "vidstack/bundle";
     import type { MediaPlayerElement } from "vidstack/elements";
     import {
@@ -41,11 +40,17 @@
         YoutubeSolid,
     } from "flowbite-svelte-icons";
     import { sineIn } from "svelte/easing";
+    import type { Preferences } from "$lib/models";
+    import { onMount } from "svelte";
+    import { MediaRemoteControl } from "vidstack";
 
     // CONNECTION
     let connection: HubConnection;
-    let preferredUsername = localStore<string>("preferredUsername", "");
-    let preferredAvatar = localStore<string>("preferredAvatar", "");
+    let preferences = localStore<Preferences>("preferences", {
+        username: "",
+        avatar: "",
+        volume: 1,
+    });
 
     // MISC
     let showWelcomeModal = $state(true);
@@ -58,7 +63,7 @@
             needed: Math.ceil(Object.values(room?.members ?? []).length),
             amount: room?.session?.skips?.length ?? 0,
             alreadySkipped: room?.session
-                ? !!room.session.skips.find((id) => id === ownRoomMember?.id)
+                ? room.session.skips.some((id) => id === ownRoomMember?.id)
                 : false,
             toggle: () => connection.send("ToggleSkip"),
         };
@@ -90,6 +95,7 @@
 
     // MEDIA
     let mediaPlayer: MediaPlayerElement | undefined = $state(undefined);
+    let mediaRemote = new MediaRemoteControl();
     let mediaQueue = $state({
         value: localStore<Media[]>("mediaQueue", []).value,
         enqueue: (media: Media) => mediaQueue.value.push(media),
@@ -168,11 +174,11 @@
             await connection.invoke(
                 "ChangeUsernameAndAvatar",
                 newUsername,
-                preferredAvatar.value,
+                preferences.value.avatar,
             );
             if (ownRoomMember) {
-                ownRoomMember.username = preferredUsername.value;
-                ownRoomMember.avatar = preferredAvatar.value;
+                ownRoomMember.username = preferences.value.username;
+                ownRoomMember.avatar = preferences.value.avatar;
             }
         } catch (error) {
             console.error("Error changing username or avatar:", error);
@@ -194,8 +200,11 @@
 
             room = receivedRoom;
 
-            if (!mediaPlayer) return;
+            if (!mediaPlayer || document.hidden) return;
             mediaPlayer.src = room?.session?.media?.url ?? defaultMediaUrl;
+            setTimeout(() => {
+                if (mediaPlayer) mediaPlayer.volume = preferences.value.volume;
+            }, 1000);
         });
 
         connection.on(
@@ -205,13 +214,13 @@
                 ownRoomMember = receivedMember;
 
                 if (
-                    preferredUsername.value !== "" &&
-                    preferredUsername.value !== ownRoomMember.username
+                    preferences.value.username !== "" &&
+                    preferences.value.username !== ownRoomMember.username
                 ) {
-                    await changeUsername(preferredUsername.value);
+                    await changeUsername(preferences.value.username);
                 } else {
-                    preferredUsername.value = ownRoomMember.username;
-                    preferredAvatar.value = ownRoomMember.avatar;
+                    preferences.value.username = ownRoomMember.username;
+                    preferences.value.avatar = ownRoomMember.avatar;
                 }
             },
         );
@@ -261,6 +270,11 @@
             if (isInHostQueue) {
                 return "Are you sure you want to leave? You will lose your spot in the DJ queue.";
             }
+        };
+
+        window.document.onvisibilitychange = () => {
+            if (mediaPlayer)
+                mediaPlayer.src = room?.session?.media?.url ?? defaultMediaUrl;
         };
 
         return () => {
@@ -509,7 +523,9 @@
                         />
                     </div>
                     <div class="ml-3">
-                        <p class="text-sm font-semibold text-gray-100 truncate">
+                        <p
+                            class="text-sm text-left font-semibold text-gray-100 truncate"
+                        >
                             {ownRoomMember?.username ?? "Loading..."}
                         </p>
                         <div

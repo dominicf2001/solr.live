@@ -6,10 +6,9 @@ export default defineConfig({
 	plugins: [vidstack(), sveltekit()],
 	server: {
 		proxy: {
-			"/api": {
+			"/roomHub": {
 				target: "http://localhost:5066",
 				changeOrigin: true,
-				rewrite: (path) => path.replace(/^\/api/, '')
 			}
 		}
 	}

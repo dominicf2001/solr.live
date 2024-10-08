@@ -6,7 +6,10 @@ const config = {
   preprocess: [vitePreprocess({})],
   compilerOptions: {},
   kit: {
-    adapter: adapter(),
+    adapter: adapter({
+      out: "build",
+      assets: true,
+    }),
   },
 };
 

@@ -11,7 +11,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", builder =>
     {
-        builder.WithOrigins(["https://test.dominicferrando.com", "http://localhost.com"])
+        builder.WithOrigins(["https://test.dominicferrando.com", "http://localhost.com", "http://dominicsdesktop:5173"])
                .AllowAnyHeader()
                .AllowAnyMethod()
                .AllowCredentials();
