@@ -42,7 +42,7 @@
     import { sineIn } from "svelte/easing";
     import type { Preferences } from "$lib/models";
     import { onMount } from "svelte";
-    import { MediaRemoteControl } from "vidstack";
+    import { doc } from "prettier";
 
     // CONNECTION
     let connection: HubConnection;
@@ -53,7 +53,8 @@
     });
 
     // MISC
-    let showWelcomeModal = $state(true);
+    let showChangeUsernameModal = $state(true);
+    let usernameInput: HTMLInputElement | undefined = $state(undefined);
 
     // ROOM
     let room: Room | undefined = $state(undefined);
@@ -95,7 +96,6 @@
 
     // MEDIA
     let mediaPlayer: MediaPlayerElement | undefined = $state(undefined);
-    let mediaRemote = new MediaRemoteControl();
     let mediaQueue = $state({
         value: localStore<Media[]>("mediaQueue", []).value,
         enqueue: (media: Media) => mediaQueue.value.push(media),
@@ -170,6 +170,7 @@
     }
 
     async function changeUsername(newUsername: string) {
+        preferences.value.username = newUsername;
         try {
             await connection.invoke(
                 "ChangeUsernameAndAvatar",
@@ -277,6 +278,12 @@
                 mediaPlayer.src = room?.session?.media?.url ?? defaultMediaUrl;
         };
 
+        usernameInput?.focus();
+        usernameInput?.setSelectionRange(
+            usernameInput.value.length,
+            usernameInput.value.length,
+        );
+
         return () => {
             unsubPlayer?.();
             connection.stop();
@@ -295,29 +302,37 @@
 <main class="flex w-screen h-screen">
     <Modal
         class="bg-background-dark"
-        bind:open={showWelcomeModal}
+        bind:open={showChangeUsernameModal}
         size="xs"
+        outsideclose
         autoclose
     >
-        <div class="text-center">
-            <ListMusicSolid
-                class="mx-auto mb-4 text-gray-400 w-12 h-12 dark:text-gray-200"
-            />
+        <form
+            onsubmit={() => {
+                changeUsername(usernameInput?.value ?? "");
+                mediaPlayer?.play();
+                showChangeUsernameModal = false;
+            }}
+            class="text-center"
+        >
             <h3
                 class="mb-5 text-lg font-normal text-gray-500 dark:text-gray-400"
             >
-                Welcome, traveler
+                What should we call you?
             </h3>
-            <Button
-                onclick={() => {
-                    if (mediaPlayer) {
-                        mediaPlayer.play();
-                    }
-                }}
-                color="blue"
-                class="me-2">Let me in</Button
+            <Input
+                id="nicknameInput"
+                class="text-gray-200 font-extrabold rounded-sm bg-background-darker border-opacity-25"
+                type="text"
+                let:props
             >
-        </div>
+                <input
+                    value={preferences.value.username}
+                    {...props}
+                    bind:this={usernameInput}
+                />
+            </Input>
+        </form>
     </Modal>
 
     <section id="stage" class="flex flex-2 flex-col">
@@ -501,15 +516,8 @@
             <div
                 class="p-2 items-center flex rounded-none w-full bg-background-dark"
             >
-                <button
-                    onclick={() => {
-                        const mediaQueueElem =
-                            document.getElementById("mediaQueue");
-                        mediaQueue.hidden = mediaQueueElem
-                            ? !mediaQueueElem.classList.contains("hidden")
-                            : false;
-                    }}
-                    class="flex items-center rounded-sm h-full p-1.5 hover:bg-background-darker transition-colors duration-200 {!mediaQueue.hidden
+                <div
+                    class="p-0.5 rounded-sm hover:bg-background-darker flex items-center {!mediaQueue.hidden
                         ? 'bg-background-darker'
                         : ''}"
                 >
@@ -517,30 +525,48 @@
                         class="relative flex-shrink-0 hover:bg-background-darker"
                     >
                         <Avatar
+                            onclick={() =>
+                                (showChangeUsernameModal =
+                                    !showChangeUsernameModal)}
                             rounded
                             src={ownRoomMember?.avatar}
-                            class="w-10 h-10 rounded-full bg-background-darker"
+                            class="w-10 h-10 rounded-full bg-background-darker hover:opacity-80 cursor-pointer {showChangeUsernameModal
+                                ? 'opacity-80'
+                                : ''}"
                         />
                     </div>
-                    <div class="ml-3">
-                        <p
-                            class="text-sm text-left font-semibold text-gray-100 truncate"
-                        >
-                            {ownRoomMember?.username ?? "Loading..."}
-                        </p>
-                        <div
-                            class="flex items-center text-left text-xs text-gray-400 truncate"
-                        >
-                            <ListMusicSolid />
-                            <p class="ml-1">My Queue</p>
+                    <button
+                        onclick={() => {
+                            const mediaQueueElem =
+                                document.getElementById("mediaQueue");
+                            mediaQueue.hidden = mediaQueueElem
+                                ? !mediaQueueElem.classList.contains("hidden")
+                                : false;
+                        }}
+                        class="flex items-center rounded-md ml-2 p-1 h-full hover:opacity-80 transition-colors duration-200 {!mediaQueue.hidden
+                            ? 'opacity-80'
+                            : ''}"
+                    >
+                        <div>
+                            <p
+                                class="text-sm text-left font-semibold text-gray-100 truncate"
+                            >
+                                {ownRoomMember?.username ?? "Loading..."}
+                            </p>
+                            <div
+                                class="flex items-center text-left text-xs text-gray-400 truncate"
+                            >
+                                <ListMusicSolid />
+                                <p class="ml-1">My Queue</p>
+                            </div>
                         </div>
-                    </div>
-                    {#if mediaQueue.hidden}
-                        <ChevronDownOutline class="ml-2 text-gray-400" />
-                    {:else}
-                        <ChevronUpOutline class="ml-2 text-gray-400" />
-                    {/if}
-                </button>
+                        {#if mediaQueue.hidden}
+                            <ChevronDownOutline class="ml-2 text-gray-400" />
+                        {:else}
+                            <ChevronUpOutline class="ml-2 text-gray-400" />
+                        {/if}
+                    </button>
+                </div>
                 <div class="flex items-center ml-auto mr-4 text-gray-400">
                     <button
                         disabled={!room?.session}
