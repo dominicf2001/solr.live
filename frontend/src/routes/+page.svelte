@@ -354,26 +354,20 @@
             }}
             class="text-center"
         >
-            <h3
-                class="mb-5 text-lg font-normal text-gray-500 dark:text-gray-400"
-            >
-                What should we call you?
-            </h3>
-            <div class="flex flex-col items-center">
+            <div class="flex items-center">
                 <Avatar
                     onclick={async () => {
                         avatarInput = await connection.invoke(
                             "GenerateRandomAvatar",
                         );
                     }}
-                    class="mb-5 hover:opacity-80 cursor-pointer"
+                    class="mr-5 hover:opacity-80 cursor-pointer"
                     size="lg"
-                    rounded
                     src={avatarInput}
                 />
                 <Input
                     id="nicknameInput"
-                    class="text-gray-200 mb-2.5 font-extrabold rounded-sm bg-background-darker border-opacity-25"
+                    class="text-gray-200 font-extrabold rounded-sm bg-background-darker border-opacity-25"
                     type="text"
                     let:props
                     required
@@ -385,6 +379,17 @@
                     />
                 </Input>
             </div>
+            <Button
+                color="blue"
+                onclick={() => {
+                    changeUsernameAndAvatar(
+                        usernameInput?.value ?? "",
+                        avatarInput,
+                    );
+                    mediaPlayer?.play();
+                    showChangeUsernameModal = false;
+                }}>Set</Button
+            >
         </form>
     </Modal>
 
