@@ -55,6 +55,7 @@
     // MISC
     let showChangeUsernameModal = $state(true);
     let usernameInput: HTMLInputElement | undefined = $state(undefined);
+    let avatarInput: string = $state(preferences.value.avatar);
 
     // ROOM
     let room: Room | undefined = $state(undefined);
@@ -180,13 +181,27 @@
         }
     }
 
-    async function changeUsername(newUsername: string) {
+    function avatarFromChatMessage(message: ChatMessage): string {
+        if (room?.members) {
+            const avatar =
+                room.members[message.authorID]?.avatar ?? message.cachedAvatar;
+            return avatar;
+        } else {
+            return message.cachedAvatar;
+        }
+    }
+
+    async function changeUsernameAndAvatar(
+        newUsername: string = preferences.value.username,
+        newAvatar: string = preferences.value.avatar,
+    ) {
         preferences.value.username = newUsername;
+        preferences.value.avatar = newAvatar;
         try {
             await connection.invoke(
                 "ChangeUsernameAndAvatar",
                 newUsername,
-                preferences.value.avatar,
+                newAvatar,
             );
             if (ownRoomMember) {
                 ownRoomMember.username = preferences.value.username;
@@ -228,10 +243,16 @@
                 ownRoomMember = receivedMember;
 
                 if (
-                    preferences.value.username !== "" &&
-                    preferences.value.username !== ownRoomMember.username
+                    (preferences.value.username !== "" &&
+                        preferences.value.username !==
+                            ownRoomMember.username) ||
+                    (preferences.value.avatar !== "" &&
+                        preferences.value.avatar !== ownRoomMember.avatar)
                 ) {
-                    await changeUsername(preferences.value.username);
+                    await changeUsernameAndAvatar(
+                        preferences.value.username,
+                        preferences.value.avatar,
+                    );
                 } else {
                     preferences.value.username = ownRoomMember.username;
                     preferences.value.avatar = ownRoomMember.avatar;
@@ -291,12 +312,6 @@
                 mediaPlayer.src = room?.session?.media?.url ?? defaultMediaUrl;
         };
 
-        usernameInput?.focus();
-        usernameInput?.setSelectionRange(
-            usernameInput.value.length,
-            usernameInput.value.length,
-        );
-
         return () => {
             unsubPlayer?.();
             connection.stop();
@@ -308,6 +323,14 @@
         if (chat.shouldScroll && (room?.chat?.messages?.length ?? 0) > 0) {
             scrollToBottom(chat.container);
             chat.shouldScroll = false;
+        }
+
+        if (showChangeUsernameModal) {
+            usernameInput?.focus();
+            usernameInput?.setSelectionRange(
+                usernameInput.value.length,
+                usernameInput.value.length,
+            );
         }
     });
 </script>
@@ -321,8 +344,11 @@
         autoclose
     >
         <form
-            onsubmit={() => {
-                changeUsername(usernameInput?.value ?? "");
+            onsubmit={(e) => {
+                changeUsernameAndAvatar(
+                    usernameInput?.value ?? "",
+                    avatarInput,
+                );
                 mediaPlayer?.play();
                 showChangeUsernameModal = false;
             }}
@@ -333,19 +359,32 @@
             >
                 What should we call you?
             </h3>
-            <Input
-                id="nicknameInput"
-                class="text-gray-200 font-extrabold rounded-sm bg-background-darker border-opacity-25"
-                type="text"
-                let:props
-                required
-            >
-                <input
-                    value={preferences.value.username}
-                    {...props}
-                    bind:this={usernameInput}
+            <div class="flex flex-col items-center">
+                <Avatar
+                    onclick={async () => {
+                        avatarInput = await connection.invoke(
+                            "GenerateRandomAvatar",
+                        );
+                    }}
+                    class="mb-5 hover:opacity-80 cursor-pointer"
+                    size="lg"
+                    rounded
+                    src={avatarInput}
                 />
-            </Input>
+                <Input
+                    id="nicknameInput"
+                    class="text-gray-200 mb-2.5 font-extrabold rounded-sm bg-background-darker border-opacity-25"
+                    type="text"
+                    let:props
+                    required
+                >
+                    <input
+                        value={preferences.value.username}
+                        {...props}
+                        bind:this={usernameInput}
+                    />
+                </Input>
+            </div>
         </form>
     </Modal>
 
@@ -539,9 +578,13 @@
                         class="relative flex-shrink-0 hover:bg-background-darker"
                     >
                         <Avatar
-                            onclick={() =>
-                                (showChangeUsernameModal =
-                                    !showChangeUsernameModal)}
+                            onclick={() => {
+                                avatarInput =
+                                    ownRoomMember?.avatar ??
+                                    preferences.value.avatar;
+                                showChangeUsernameModal =
+                                    !showChangeUsernameModal;
+                            }}
                             rounded
                             src={ownRoomMember?.avatar}
                             class="w-10 h-10 rounded-full bg-background-darker hover:opacity-80 cursor-pointer {showChangeUsernameModal
@@ -675,9 +718,12 @@
                             <div class="w-14 h-14">
                                 <Avatar
                                     class="rounded-full bg-transparent"
-                                    src={chatMessage.cachedAvatar}
+                                    src={avatarFromChatMessage(chatMessage)}
                                     alt="User avatar"
                                 />
+                                <p class="hidden">
+                                    {avatarFromChatMessage(chatMessage)}
+                                </p>
                             </div>
                             <div class="lg:text-sm md:text-xs w-full">
                                 <div class="flex items-center">

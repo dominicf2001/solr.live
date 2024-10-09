@@ -100,16 +100,11 @@ public static class RoomUtils
 
     public static string GenRandomAvatar()
     {
-        string[] seeds = {
-            "Destiny", "Aidan", "Adrian", "Christopher", "Alexander", "Aiden",
-            "Easton", "Eden", "Chase", "Amaya", "Avery", "Brooklynn", "Caleb",
-            "Christian", "Andrea", "Brian", "Eliza", "Emery", "George", "Jessica"
-        };
-
+        const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
         Random random = new Random();
-        int index = random.Next(seeds.Length);
+        string seed = new string(Enumerable.Repeat(chars, 10)
+            .Select(s => s[random.Next(s.Length)]).ToArray());
 
-        string seed = seeds[index];
-        return $"https://api.dicebear.com/9.x/adventurer/svg?seed=${seed}&hair=long10,short19,short18,short17,short16,short15,short14,long01,long02,short10,short09,short08,short11,short12,short13,short03,short02,short01,long24,long23,long22,long15,long14&skinColor=f2d3b1,ecad80&backgroundColor=c0aede,d1d4f9,ffd5dc,ffdfbf,b6e3f4";
+        return $"https://api.dicebear.com/9.x/identicon/svg?seed={seed}&backgroundColor=b6e3f4,c0aede,d1d4f9,ffd5dc,ffdfbf";
     }
 }

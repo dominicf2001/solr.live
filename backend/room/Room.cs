@@ -168,14 +168,17 @@ public class RoomHub : Hub
         return filteredVideos;
     }
 
+    public async Task<string> GenerateRandomAvatar()
+    {
+        return await Task.FromResult(RoomUtils.GenRandomAvatar());
+    }
+
     public async Task ChangeUsernameAndAvatar(string newUsername, string newAvatar)
     {
         Room room = roomManager.GetRoom("Test");
         string userID = Context.UserIdentifier ?? throw new InvalidOperationException("User identifier is unexpectedly null");
 
         logger.LogInformation($"User: {userID} attempting to change their username to {newUsername} and avatar to {newAvatar}");
-        if (room.Members.Values.Any(m => m.Username == newUsername))
-            return;
 
         if (room.Members.TryGetValue(userID, out RoomMember? member))
         {
@@ -184,7 +187,10 @@ public class RoomHub : Hub
 
             foreach (ChatMessage message in room.Chat.Messages)
                 if (message.AuthorID == userID)
+                {
+                    message.CachedAvatar = newAvatar;
                     message.CachedUsername = newUsername;
+                }
 
             logger.LogInformation($"User: {userID} changed their username to {newUsername} and avatar to {newAvatar}");
             await Clients.Group(room.ID).SendAsync("ReceiveRoom", room);
