@@ -53,7 +53,7 @@ export interface Chat {
 export interface ChatMessage {
   content: string
   authorID: string
-  usernameAtDate: string;
-  avatarAtDate: string;
+  cachedUsername: string;
+  cachedAvatar: string;
   date: string
 }

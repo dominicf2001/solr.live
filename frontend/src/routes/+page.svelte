@@ -1,7 +1,7 @@
 <script lang="ts">
     import type { ChatMessage, Media, Room, RoomMember } from "$lib/api";
     import { localStore } from "$lib/localStore.svelte";
-    import { formatDate, scrollToBottom } from "$lib/util";
+    import { formatDate, scrollToBottom, generateSessionID } from "$lib/util";
     import type { HubConnection } from "@microsoft/signalr";
     import {
         HttpTransportType,
@@ -42,11 +42,11 @@
     import { sineIn } from "svelte/easing";
     import type { Preferences } from "$lib/models";
     import { onMount } from "svelte";
-    import { doc } from "prettier";
 
     // CONNECTION
     let connection: HubConnection;
     let preferences = localStore<Preferences>("preferences", {
+        id: "",
         username: "",
         avatar: "",
         volume: 1,
@@ -169,6 +169,17 @@
         }
     }
 
+    function usernameFromChatMessage(message: ChatMessage): string {
+        if (room?.members) {
+            const username =
+                room.members[message.authorID]?.username ??
+                message.cachedUsername;
+            return username;
+        } else {
+            return message.cachedUsername;
+        }
+    }
+
     async function changeUsername(newUsername: string) {
         preferences.value.username = newUsername;
         try {
@@ -187,11 +198,16 @@
     }
 
     onMount(() => {
+        if (!preferences.value.id) {
+            preferences.value.id = generateSessionID();
+        }
+
         // WEBSOCKET CONNECTION
         connection = new HubConnectionBuilder()
             .withUrl(`${import.meta.env.VITE_API_URL}/roomHub`, {
                 skipNegotiation: true,
                 transport: HttpTransportType.WebSockets,
+                accessTokenFactory: () => preferences.value.id,
             })
             .withAutomaticReconnect()
             .build();
@@ -203,9 +219,6 @@
 
             if (!mediaPlayer || document.hidden) return;
             mediaPlayer.src = room?.session?.media?.url ?? defaultMediaUrl;
-            setTimeout(() => {
-                if (mediaPlayer) mediaPlayer.volume = preferences.value.volume;
-            }, 1000);
         });
 
         connection.on(
@@ -325,6 +338,7 @@
                 class="text-gray-200 font-extrabold rounded-sm bg-background-darker border-opacity-25"
                 type="text"
                 let:props
+                required
             >
                 <input
                     value={preferences.value.username}
@@ -661,14 +675,14 @@
                             <div class="w-14 h-14">
                                 <Avatar
                                     class="rounded-full bg-transparent"
-                                    src={chatMessage.avatarAtDate}
+                                    src={chatMessage.cachedAvatar}
                                     alt="User avatar"
                                 />
                             </div>
                             <div class="lg:text-sm md:text-xs w-full">
                                 <div class="flex items-center">
                                     <span class="text-blue-500 font-bold">
-                                        {chatMessage.usernameAtDate}
+                                        {usernameFromChatMessage(chatMessage)}
                                     </span>
                                     <span class="ml-auto text-gray-400"
                                         >{formatDate(chatMessage.date)}</span

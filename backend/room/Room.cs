@@ -181,6 +181,11 @@ public class RoomHub : Hub
         {
             member.Username = newUsername;
             member.Avatar = newAvatar;
+
+            foreach (ChatMessage message in room.Chat.Messages)
+                if (message.AuthorID == userID)
+                    message.CachedUsername = newUsername;
+
             logger.LogInformation($"User: {userID} changed their username to {newUsername} and avatar to {newAvatar}");
             await Clients.Group(room.ID).SendAsync("ReceiveRoom", room);
         }
@@ -420,8 +425,8 @@ public class ChatMessage
 {
     public string Content { get; }
     public string AuthorID { get; }
-    public string UsernameAtDate { get; }
-    public string AvatarAtDate { get; }
+    public string CachedUsername { get; set; }
+    public string CachedAvatar { get; set; }
     public DateTime Date { get; }
 
     public ChatMessage(string authorID, string username, string avatar, string content, DateTime date)
@@ -429,15 +434,16 @@ public class ChatMessage
         Date = date;
         AuthorID = authorID;
         Content = content;
-        AvatarAtDate = avatar;
-        UsernameAtDate = username;
+        CachedAvatar = avatar;
+        CachedUsername = username;
     }
 }
 
 public class NameUserIdProvider : IUserIdProvider
 {
-    public string GetUserId(HubConnectionContext connection)
+    public string? GetUserId(HubConnectionContext connection)
     {
-        return connection.ConnectionId;
+        Console.WriteLine("test");
+        return connection.GetHttpContext()?.Request.Query["access_token"];
     }
 }
