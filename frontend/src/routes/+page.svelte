@@ -42,6 +42,7 @@
     import { sineIn } from "svelte/easing";
     import type { Preferences } from "$lib/models";
     import { onMount } from "svelte";
+    import { doc } from "prettier";
 
     // CONNECTION
     let connection: HubConnection;
@@ -273,14 +274,20 @@
         });
 
         // MEDIA PLAYER
-        const unsubPlayer = mediaPlayer?.subscribe(({ canPlay, paused }) => {
-            if (!mediaPlayer) return;
+        const unsubPlayer = mediaPlayer?.subscribe(
+            ({ canPlay, paused, muted, canSetVolume }) => {
+                if (!mediaPlayer) return;
 
-            if (canPlay && paused) {
-                mediaPlayer.currentTime = calculateCurrentTime();
-                mediaPlayer.play().catch((e) => console.error(e));
-            }
-        });
+                if (canPlay && paused) {
+                    mediaPlayer.currentTime = calculateCurrentTime();
+                    // mediaPlayer.play().catch((e) => console.error(e));
+                }
+
+                if (!profileEditor.isFirstOpen && muted) {
+                    mediaPlayer.muted = false;
+                }
+            },
+        );
 
         window.onbeforeunload = () => {
             // warn user when they exit
@@ -317,6 +324,15 @@
                 profileEditor.usernameInput.value.length,
                 profileEditor.usernameInput.value.length,
             );
+        }
+
+        if (!preferences.value.avatar && ownRoomMember) {
+            preferences.value.avatar = ownRoomMember.avatar;
+            profileEditor.avatarInput = preferences.value.avatar;
+        }
+
+        if (!preferences.value.username && ownRoomMember) {
+            preferences.value.username = ownRoomMember.username;
         }
 
         if (mediaQueue.searchMode) {
@@ -378,7 +394,7 @@
                         profileEditor.avatarInput,
                     );
                     if (profileEditor.isFirstOpen) chat.input?.focus();
-                    mediaPlayer?.play();
+                    if (mediaPlayer) mediaPlayer.muted = false;
                     profileEditor.isFirstOpen = false;
                     profileEditor.open = false;
                 }}>{profileEditor.isFirstOpen ? "Join" : "Set"}</Button
@@ -392,10 +408,12 @@
                 <media-player
                     class="aspect-video rounded-md shadow-lg overflow-hidden bg-background-dark"
                     bind:this={mediaPlayer}
-                    load="play"
+                    load="eager"
                     crossOrigin="anonymous"
                     playsInline
                     streamType="live"
+                    autoPlay
+                    muted
                 >
                     <media-provider></media-provider>
                     <media-video-layout></media-video-layout>
