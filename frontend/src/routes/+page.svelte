@@ -52,10 +52,13 @@
         volume: 1,
     });
 
-    // MISC
-    let showChangeUsernameModal = $state(true);
-    let usernameInput: HTMLInputElement | undefined = $state(undefined);
-    let avatarInput: string = $state(preferences.value.avatar);
+    // CUSTOMIZATION
+    const profileEditor = $state({
+        isFirstOpen: true,
+        open: true,
+        usernameInput: undefined as HTMLInputElement | undefined,
+        avatarInput: preferences.value.avatar,
+    });
 
     // ROOM
     let room: Room | undefined = $state(undefined);
@@ -117,9 +120,9 @@
     const search = $state({
         isLoading: false,
         results: [] as Media[],
-        input: "",
+        input: undefined as HTMLInputElement | undefined,
         clear: () => {
-            search.input = "";
+            if (search.input) search.input.value = "";
             search.results = [];
         },
         run: async () => {
@@ -130,7 +133,7 @@
             search.isLoading = true;
             search.results = await connection.invoke(
                 "YTSearch",
-                search.input.trim(),
+                search.input.value.trim(),
             );
             search.isLoading = false;
         },
@@ -325,12 +328,16 @@
             chat.shouldScroll = false;
         }
 
-        if (showChangeUsernameModal) {
-            usernameInput?.focus();
-            usernameInput?.setSelectionRange(
-                usernameInput.value.length,
-                usernameInput.value.length,
+        if (profileEditor.open) {
+            profileEditor.usernameInput?.focus();
+            profileEditor.usernameInput?.setSelectionRange(
+                profileEditor.usernameInput.value.length,
+                profileEditor.usernameInput.value.length,
             );
+        }
+
+        if (mediaQueue.searchMode) {
+            search.input?.focus();
         }
     });
 </script>
@@ -338,32 +345,33 @@
 <main class="flex w-screen h-screen">
     <Modal
         class="bg-background-dark"
-        bind:open={showChangeUsernameModal}
+        bind:open={profileEditor.open}
         size="xs"
-        outsideclose
+        outsideclose={!profileEditor.isFirstOpen}
         autoclose
     >
         <form
             onsubmit={(e) => {
                 changeUsernameAndAvatar(
-                    usernameInput?.value ?? "",
-                    avatarInput,
+                    profileEditor.usernameInput?.value ?? "",
+                    profileEditor.avatarInput,
                 );
                 mediaPlayer?.play();
-                showChangeUsernameModal = false;
+                profileEditor.isFirstOpen = false;
+                profileEditor.open = false;
             }}
             class="text-center"
         >
             <div class="flex items-center">
                 <Avatar
                     onclick={async () => {
-                        avatarInput = await connection.invoke(
+                        profileEditor.avatarInput = await connection.invoke(
                             "GenerateRandomAvatar",
                         );
                     }}
                     class="mr-5 hover:opacity-80 cursor-pointer"
                     size="lg"
-                    src={avatarInput}
+                    src={profileEditor.avatarInput}
                 />
                 <Input
                     id="nicknameInput"
@@ -375,7 +383,7 @@
                     <input
                         value={preferences.value.username}
                         {...props}
-                        bind:this={usernameInput}
+                        bind:this={profileEditor.usernameInput}
                     />
                 </Input>
             </div>
@@ -383,12 +391,14 @@
                 color="blue"
                 onclick={() => {
                     changeUsernameAndAvatar(
-                        usernameInput?.value ?? "",
-                        avatarInput,
+                        profileEditor.usernameInput?.value ?? "",
+                        profileEditor.avatarInput,
                     );
+                    if (profileEditor.isFirstOpen) chat.input?.focus();
                     mediaPlayer?.play();
-                    showChangeUsernameModal = false;
-                }}>Set</Button
+                    profileEditor.isFirstOpen = false;
+                    profileEditor.open = false;
+                }}>{profileEditor.isFirstOpen ? "Join" : "Set"}</Button
             >
         </form>
     </Modal>
@@ -465,7 +475,7 @@
                             onkeydown={(e) => e.key === "Enter" && search.run()}
                             let:props
                         >
-                            <input {...props} bind:value={search.input} />
+                            <input {...props} bind:this={search.input} />
                         </Input>
 
                         <CloseCircleSolid
@@ -575,7 +585,7 @@
                 class="p-2 items-center flex rounded-none w-full bg-background-dark"
             >
                 <div
-                    class="p-0.5 rounded-sm hover:bg-background-darker flex items-center {!mediaQueue.hidden
+                    class="p-1 rounded-lg hover:bg-background-darker flex items-center {!mediaQueue.hidden
                         ? 'bg-background-darker'
                         : ''}"
                 >
@@ -584,15 +594,14 @@
                     >
                         <Avatar
                             onclick={() => {
-                                avatarInput =
+                                profileEditor.avatarInput =
                                     ownRoomMember?.avatar ??
                                     preferences.value.avatar;
-                                showChangeUsernameModal =
-                                    !showChangeUsernameModal;
+                                profileEditor.open = !profileEditor.open;
                             }}
                             rounded
                             src={ownRoomMember?.avatar}
-                            class="w-10 h-10 rounded-full bg-background-darker hover:opacity-80 cursor-pointer {showChangeUsernameModal
+                            class="w-10 h-10 rounded-full bg-background-darker hover:opacity-80 cursor-pointer {profileEditor.open
                                 ? 'opacity-80'
                                 : ''}"
                         />

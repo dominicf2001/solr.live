@@ -36,6 +36,8 @@ public class RoomHub : Hub
             room.Members[userID] = member = new RoomMember(userID, username, avatar);
         }
 
+        member.ConnectionID = Context.ConnectionId;
+
         await Clients.Caller.SendAsync("ReceiveOwnRoomMember", member);
         Task[] tasks = [
             Clients.Caller.SendAsync("ReceiveRoom", room),
@@ -285,7 +287,8 @@ public class Room
             Media? nextHostMedia = null;
             while (HostQueue.TryDequeue(out RoomMember? potentialHost))
             {
-                Media potentialMedia = await roomHubContext.Clients.Client(potentialHost.ID).InvokeAsync<Media>("DequeueMediaQueue", CancellationToken.None);
+                string connectionID = Members[potentialHost.ID].ConnectionID;
+                Media potentialMedia = await roomHubContext.Clients.Client(connectionID).InvokeAsync<Media>("DequeueMediaQueue", CancellationToken.None);
                 if (potentialMedia != null)
                 {
                     Console.WriteLine($"URL: {potentialMedia.Url}");
@@ -305,7 +308,8 @@ public class Room
             else if (prevHost != null && !preventHostRequeue)
             {
                 // fallback to previous host, if they have another media
-                Media? prevHostMedia = await roomHubContext.Clients.Client(prevHost.ID).InvokeAsync<Media?>("DequeueMediaQueue", CancellationToken.None);
+                string connectionID = Members[prevHost.ID].ConnectionID;
+                Media? prevHostMedia = await roomHubContext.Clients.Client(connectionID).InvokeAsync<Media?>("DequeueMediaQueue", CancellationToken.None);
                 if (prevHostMedia != null)
                     Session = new Session(prevHost, prevHostMedia, onSessionTimerEnd);
             }
@@ -339,6 +343,7 @@ public class Room
 public record RoomMember
 {
     public string ID { get; }
+    public string ConnectionID { get; set; } = "";
     public string Username { get; set; }
     public string Avatar { get; set; } = "";
 
