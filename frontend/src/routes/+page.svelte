@@ -62,7 +62,9 @@
 
     // ROOM
     let room: Room | undefined = $state(undefined);
-    let ownRoomMember: RoomMember | undefined = $state(undefined);
+    let ownRoomMember: RoomMember | undefined = $derived.by(
+        () => room?.members[preferences.value.id],
+    );
     let skips = $derived.by(() => {
         return {
             needed: Math.ceil(Object.values(room?.members ?? []).length),
@@ -239,30 +241,6 @@
             mediaPlayer.src = room?.session?.media?.url ?? defaultMediaUrl;
         });
 
-        connection.on(
-            "ReceiveOwnRoomMember",
-            async (receivedMember: RoomMember) => {
-                console.log("Received own room member", receivedMember);
-                ownRoomMember = receivedMember;
-
-                if (
-                    (preferences.value.username !== "" &&
-                        preferences.value.username !==
-                            ownRoomMember.username) ||
-                    (preferences.value.avatar !== "" &&
-                        preferences.value.avatar !== ownRoomMember.avatar)
-                ) {
-                    await changeUsernameAndAvatar(
-                        preferences.value.username,
-                        preferences.value.avatar,
-                    );
-                } else {
-                    preferences.value.username = ownRoomMember.username;
-                    preferences.value.avatar = ownRoomMember.avatar;
-                }
-            },
-        );
-
         connection.on("DequeueMediaQueue", () => {
             console.log("Dequeuing media queue");
             return mediaQueue.dequeue();
@@ -287,15 +265,20 @@
             delete room?.members?.[memberID];
         });
 
-        connection.start();
+        connection.start().then(async () => {
+            await changeUsernameAndAvatar(
+                preferences.value.username,
+                preferences.value.avatar,
+            );
+        });
 
         // MEDIA PLAYER
-        const unsubPlayer = mediaPlayer?.subscribe(({ canPlay }) => {
+        const unsubPlayer = mediaPlayer?.subscribe(({ canPlay, paused }) => {
             if (!mediaPlayer) return;
 
-            if (canPlay) {
+            if (canPlay && paused) {
                 mediaPlayer.currentTime = calculateCurrentTime();
-                mediaPlayer.play();
+                mediaPlayer.play().catch((e) => console.error(e));
             }
         });
 
@@ -410,7 +393,8 @@
                     class="aspect-video rounded-md shadow-lg overflow-hidden bg-background-dark"
                     bind:this={mediaPlayer}
                     load="play"
-                    loop
+                    crossOrigin="anonymous"
+                    playsInline
                     streamType="live"
                 >
                     <media-provider></media-provider>

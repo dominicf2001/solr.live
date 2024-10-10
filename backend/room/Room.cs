@@ -38,7 +38,6 @@ public class RoomHub : Hub
 
         member.ConnectionID = Context.ConnectionId;
 
-        await Clients.Caller.SendAsync("ReceiveOwnRoomMember", member);
         Task[] tasks = [
             Clients.Caller.SendAsync("ReceiveRoom", room),
             Clients.Group(room.ID).SendAsync("MemberJoined", member),
@@ -164,7 +163,7 @@ public class RoomHub : Hub
                         ++score;
                 return score;
             })
-            .Take(10)
+            .Take(25)
             .Select(v => new Media(v));
 
         return filteredVideos;
